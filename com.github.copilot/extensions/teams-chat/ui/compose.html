@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Teams message</title>
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./app.js"></script>
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Teams message</h1>
+            <div id="account" class="account" hidden>
+                <span class="dot" aria-hidden="true"></span>
+                <span id="account-name"></span>
+                <button id="sign-out" type="button" class="link">Sign out</button>
+            </div>
+        </header>
+
+        <section id="signin" class="panel" hidden>
+            <p><strong>Sign in to Microsoft Teams</strong> with your work or school account to send messages.</p>
+            <div class="row">
+                <button id="sign-in-browser" type="button" class="primary">Sign in with browser</button>
+                <button id="sign-in-device" type="button">Use a device code</button>
+            </div>
+            <p id="signin-pending" class="muted" hidden></p>
+            <p id="signin-error" class="error" hidden></p>
+        </section>
+
+        <form id="compose" autocomplete="off">
+            <div id="chat-target" class="field" hidden>
+                <span class="label">Chat</span>
+                <div class="row">
+                    <span id="chat-label" class="chip"></span>
+                    <button id="change-chat" type="button" class="link">Change</button>
+                </div>
+            </div>
+
+            <label id="to-field" class="field">
+                <span class="label">To</span>
+                <input id="to" type="text" placeholder="Email addresses or names, separated by semicolons. Use &quot;me&quot; for Notes to self.">
+            </label>
+
+            <label id="topic-field" class="field" hidden>
+                <span class="label">Group chat name <span class="muted">(only used when a new group chat is created)</span></span>
+                <input id="topic" type="text" maxlength="250">
+            </label>
+
+            <div class="field">
+                <div class="row spread">
+                    <label for="message" class="label">Message</label>
+                    <select id="format" aria-label="Message format">
+                        <option value="markdown">Markdown</option>
+                        <option value="text">Plain text</option>
+                    </select>
+                </div>
+                <textarea id="message" rows="8" placeholder="Write your message"></textarea>
+            </div>
+
+            <div class="field">
+                <span class="label">Preview</span>
+                <div id="preview" class="preview" aria-live="polite"></div>
+            </div>
+
+            <div id="confirm" class="panel confirm" hidden>
+                <p id="confirm-text"></p>
+                <div class="row">
+                    <button id="confirm-send" type="button" class="primary">Send now</button>
+                    <button id="confirm-cancel" type="button">Cancel</button>
+                </div>
+            </div>
+
+            <div class="row actions">
+                <button id="send" type="submit" class="primary">Send</button>
+                <span id="status" class="muted" role="status"></span>
+            </div>
+            <p id="error" class="error" hidden></p>
+            <p id="result" class="success" hidden></p>
+        </form>
+    </main>
+</body>
+</html>
