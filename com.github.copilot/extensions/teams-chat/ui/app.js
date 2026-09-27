@@ -13,6 +13,9 @@ const els = {
     signinPending: $("signin-pending"),
     signinError: $("signin-error"),
     form: $("compose"),
+    viaField: $("via-field"),
+    via: $("via"),
+    viaNote: $("via-note"),
     chatTarget: $("chat-target"),
     chatLabel: $("chat-label"),
     changeChat: $("change-chat"),
@@ -82,11 +85,24 @@ function render(next) {
     state = next;
     const { auth, draft } = state;
 
+    const webhooks = state.webhooks || [];
+    const usingWebhook = Boolean(draft.webhook);
+    show(els.viaField, webhooks.length > 0 || usingWebhook);
+    const options = [["", "As me, to people or a chat (needs sign-in)"], ...webhooks.map((w) => [w.name, `Teams workflow: ${w.name}${w.description ? ` (${w.description})` : ""}`])];
+    if (usingWebhook && !webhooks.some((w) => w.name === draft.webhook)) options.push([draft.webhook, `Teams workflow: ${draft.webhook} (not found)`]);
+    const optionsKey = JSON.stringify(options);
+    if (els.via.dataset.options !== optionsKey) {
+        els.via.dataset.options = optionsKey;
+        els.via.replaceChildren(...options.map(([value, label]) => Object.assign(document.createElement("option"), { value, textContent: label })));
+    }
+    if (document.activeElement !== els.via) els.via.value = draft.webhook || "";
+    show(els.viaNote, usingWebhook);
+
     show(els.account, auth.signedIn);
     els.accountName.textContent = auth.account
         ? `Signed in as ${auth.account.displayName || auth.account.username}${auth.account.username && auth.account.displayName ? ` (${auth.account.username})` : ""}`
         : "";
-    show(els.signin, !auth.signedIn);
+    show(els.signin, !auth.signedIn && !usingWebhook);
     const pending = auth.pending;
     if (pending?.method === "device_code") {
         els.signinPending.replaceChildren(
@@ -107,15 +123,15 @@ function render(next) {
     }
     setText(els.signinError, auth.lastError);
 
-    const hasChat = Boolean(draft.chatId);
+    const hasChat = Boolean(draft.chatId) && !usingWebhook;
     show(els.chatTarget, hasChat);
     els.chatLabel.textContent = draft.chatLabel || draft.chatId || "";
-    show(els.toField, !hasChat);
+    show(els.toField, !hasChat && !usingWebhook);
     syncField(els.to, (draft.to || []).join(", "));
     syncField(els.topic, draft.topic || "");
     syncField(els.message, draft.message || "");
     if (document.activeElement !== els.format) els.format.value = draft.format || "markdown";
-    show(els.topicField, !hasChat && recipientCount() > 1);
+    show(els.topicField, !hasChat && !usingWebhook && recipientCount() > 1);
 
     const last = draft.lastResult;
     if (last?.ok) {
@@ -133,7 +149,9 @@ function render(next) {
 }
 
 function updateSendButton() {
-    const ready = state?.auth.signedIn && els.message.value.trim() && (state.draft.chatId || recipientCount() > 0);
+    const viaWebhook = Boolean(els.via.value);
+    const ready =
+        els.message.value.trim() && (viaWebhook || (state?.auth.signedIn && (state.draft.chatId || recipientCount() > 0)));
     els.send.disabled = busy || !ready;
 }
 
@@ -143,7 +161,7 @@ function queueSave(patch) {
     saveTimer = setTimeout(flushSave, 400);
     hideConfirm();
     renderPreview();
-    show(els.topicField, !state?.draft.chatId && recipientCount() > 1);
+    show(els.topicField, !els.via.value && !state?.draft.chatId && recipientCount() > 1);
     updateSendButton();
 }
 
@@ -179,6 +197,15 @@ els.to.addEventListener("input", () => queueSave({ to: els.to.value }));
 els.topic.addEventListener("input", () => queueSave({ topic: els.topic.value }));
 els.message.addEventListener("input", () => queueSave({ message: els.message.value }));
 els.format.addEventListener("change", () => queueSave({ format: els.format.value }));
+els.via.addEventListener("change", () => {
+    const webhook = els.via.value || null;
+    const usingWebhook = Boolean(webhook);
+    show(els.viaNote, usingWebhook);
+    show(els.toField, !usingWebhook && !state?.draft.chatId);
+    show(els.chatTarget, !usingWebhook && Boolean(state?.draft.chatId));
+    show(els.signin, !usingWebhook && !state?.auth.signedIn);
+    queueSave({ webhook });
+});
 els.changeChat.addEventListener("click", () => {
     queueSave({ chatId: null, chatLabel: null });
     show(els.chatTarget, false);

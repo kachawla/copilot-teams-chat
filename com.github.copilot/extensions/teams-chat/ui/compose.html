@@ -29,6 +29,14 @@
         </section>
 
         <form id="compose" autocomplete="off">
+            <label id="via-field" class="field" hidden>
+                <span class="label">Send</span>
+                <select id="via" class="wide">
+                    <option value="">As me, to people or a chat (needs sign-in)</option>
+                </select>
+                <span id="via-note" class="muted" hidden>Posts as the Workflows bot to wherever this workflow was set up.</span>
+            </label>
+
             <div id="chat-target" class="field" hidden>
                 <span class="label">Chat</span>
                 <div class="row">

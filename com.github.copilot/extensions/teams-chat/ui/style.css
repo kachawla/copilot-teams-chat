@@ -89,6 +89,11 @@ select {
     padding: 3px 8px;
 }
 
+select.wide {
+    width: 100%;
+    padding: 7px 10px;
+}
+
 textarea {
     resize: vertical;
     min-height: 120px;

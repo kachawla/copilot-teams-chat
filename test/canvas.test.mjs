@@ -189,6 +189,24 @@ test("replaying the same open input does not overwrite later edits", async (t) =
     assert.equal((await api("/api/state")).json.draft.message, "new request");
 });
 
+test("the canvas can send through a saved webhook without signing in", async (t) => {
+    const { api, service, webhook } = await openCanvas(t, { signedIn: false });
+    await service.webhooks.add("Team chat", "https://prod-1.westus.logic.azure.com/workflows/x?sig=s");
+    const { json: state } = await api("/api/draft", { webhook: "Team chat", message: "hello **team**" });
+    assert.deepEqual(state.webhooks.map((w) => w.name), ["Team chat"]);
+    assert.equal(state.draft.webhook, "Team chat");
+    assert.equal(JSON.stringify(state).includes("sig=s"), false, "the URL is not exposed to the page");
+
+    const first = await api("/api/send", { confirm: false });
+    assert.equal(first.json.label, 'the "Team chat" Teams workflow (posts as the Workflows bot)');
+    const sent = await api("/api/send", { confirm: true, fingerprint: first.json.fingerprint });
+    assert.equal(sent.json.sent, true);
+    assert.equal(webhook.calls[0].body.attachments[0].content.body[0].text, "hello **team**");
+
+    const { json: switched } = await api("/api/draft", { to: "alice@contoso.com" });
+    assert.equal(switched.draft.webhook, null, "choosing people clears the webhook");
+});
+
 test("invalid draft IDs are rejected on open", async (t) => {
     const { canvas } = await openCanvas(t);
     await assert.rejects(canvas.open({ instanceId: "panel-2", input: { draftId: "../escape" } }), /Invalid draftId/);

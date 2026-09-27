@@ -13,7 +13,7 @@ test("tool names are namespaced and read-only tools skip the permission prompt",
     const tools = createTools({ service, session: fakeSession() });
     for (const tool of tools) assert.match(tool.name, /^teams_chat_/);
     const skip = tools.filter((tool) => tool.skipPermission).map((tool) => tool.name).sort();
-    assert.deepEqual(skip, ["teams_chat_find_people", "teams_chat_list_chats", "teams_chat_send_message", "teams_chat_status"]);
+    assert.deepEqual(skip, ["teams_chat_find_people", "teams_chat_list_chats", "teams_chat_list_webhooks", "teams_chat_send_message", "teams_chat_status"]);
 });
 
 test("send asks for confirmation with the resolved recipient and message", async (t) => {

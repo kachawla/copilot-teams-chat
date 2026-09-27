@@ -41,6 +41,7 @@ export async function loadConfig({ env = process.env, dir = dataDir(env) } = {})
         authorityHost: stripTrailingSlash(file.authorityHost || DEFAULT_AUTHORITY_HOST),
         graphBaseUrl: stripTrailingSlash(file.graphBaseUrl || DEFAULT_GRAPH_BASE_URL),
         confirmBeforeSend: file.confirmBeforeSend !== false,
+        allowedWebhookHosts: Array.isArray(file.allowedWebhookHosts) ? file.allowedWebhookHosts.map(String) : [],
         dataDir: dir,
     };
 

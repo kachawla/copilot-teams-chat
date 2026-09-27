@@ -2,15 +2,17 @@ import { AuthManager, AuthError, NotSignedInError } from "./auth.mjs";
 import { loadConfig } from "./config.mjs";
 import { GraphClient, GraphError } from "./graph.mjs";
 import { TokenStore } from "./token-store.mjs";
+import { WebhookError, WebhookStore } from "./webhooks.mjs";
 import { RecipientError, formatPerson, personSummary } from "./send.mjs";
 
-export async function createService({ env = process.env, fetchImpl = globalThis.fetch, openUrl, authOptions = {} } = {}) {
+export async function createService({ env = process.env, fetchImpl = globalThis.fetch, webhookFetch = globalThis.fetch, openUrl, authOptions = {} } = {}) {
     const config = await loadConfig({ env });
     const store = new TokenStore(config.dataDir);
     const auth = new AuthManager({ config, store, fetchImpl, ...(openUrl ? { openUrl } : {}), ...authOptions });
     const graph = new GraphClient({ auth, baseUrl: config.graphBaseUrl, fetchImpl });
+    const webhooks = new WebhookStore(config.dataDir, { extraHostSuffixes: config.allowedWebhookHosts });
     await auth.ready;
-    return { config, auth, graph };
+    return { config, auth, graph, webhooks, webhookFetch };
 }
 
 /** Waits briefly for an in-progress sign-in, then returns the signed-in account or throws. */
@@ -31,7 +33,9 @@ export function describeError(err) {
         const list = err.candidates.map((c) => `- ${formatPerson(c)}${c.jobTitle ? ` (${c.jobTitle})` : ""}`).join("\n");
         return `${err.message}\nCandidates:\n${list}`;
     }
-    if (err instanceof NotSignedInError || err instanceof AuthError || err instanceof GraphError) return err.message;
+    if (err instanceof NotSignedInError || err instanceof AuthError || err instanceof GraphError || err instanceof WebhookError) {
+        return err.message;
+    }
     return `Unexpected error: ${err?.message || err}`;
 }
 

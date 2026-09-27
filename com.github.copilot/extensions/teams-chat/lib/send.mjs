@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { GraphError } from "./graph.mjs";
 import { MAX_MESSAGE_BYTES, toTeamsHtml } from "./markdown.mjs";
 import { splitRecipients } from "./recipients.mjs";
@@ -152,17 +151,6 @@ export async function executeSend({ graph, account, plan, html }) {
         createdDateTime: message?.createdDateTime ?? null,
         label: plan.label,
     };
-}
-
-/** Identifies exactly what a confirmed send will do: target and rendered content. */
-export function planFingerprint(plan, html) {
-    const target = {
-        kind: plan.kind,
-        chatId: plan.chatId ?? null,
-        people: (plan.people ?? []).map((p) => p.id).sort(),
-        topic: plan.topic ?? null,
-    };
-    return createHash("sha256").update(JSON.stringify(target)).update("\0").update(html).digest("base64url");
 }
 
 export function confirmationText(plan, message, maxChars = 1200) {

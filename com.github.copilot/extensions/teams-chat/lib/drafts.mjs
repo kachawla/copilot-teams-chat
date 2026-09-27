@@ -15,6 +15,7 @@ export function emptyDraft(draftId) {
         to: [],
         chatId: null,
         chatLabel: null,
+        webhook: null,
         topic: null,
         message: "",
         format: "markdown",
@@ -24,7 +25,7 @@ export function emptyDraft(draftId) {
     };
 }
 
-const EDITABLE = ["to", "chatId", "chatLabel", "topic", "message", "format"];
+const EDITABLE = ["to", "chatId", "chatLabel", "webhook", "topic", "message", "format"];
 
 export function applyDraftPatch(draft, patch = {}) {
     const next = { ...draft };
@@ -38,12 +39,19 @@ export function applyDraftPatch(draft, patch = {}) {
             next[key] = patch[key] === null || patch[key] === "" ? (key === "message" ? "" : null) : String(patch[key]);
         }
     }
-    // Choosing recipients replaces a previously selected chat, and vice versa.
+    // Choosing recipients, a chat, or a webhook replaces the other targets.
     if (patch.to !== undefined && patch.chatId === undefined && next.to.length) {
         next.chatId = null;
         next.chatLabel = null;
     }
     if (patch.chatId && patch.to === undefined) next.to = [];
+    if (patch.webhook) {
+        next.to = [];
+        next.chatId = null;
+        next.chatLabel = null;
+    } else if ((patch.to !== undefined && next.to.length) || patch.chatId) {
+        next.webhook = null;
+    }
     return next;
 }
 

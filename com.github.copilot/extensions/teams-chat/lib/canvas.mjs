@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { startComposeServer } from "./compose-server.mjs";
 import { DraftStore, applyDraftPatch, validDraftId } from "./drafts.mjs";
-import { executeSend, planFingerprint, planSend, renderMessage } from "./send.mjs";
-import { describeError, requireAccount } from "./service.mjs";
+import { deliver, planFingerprint, prepareSend } from "./delivery.mjs";
+import { describeError } from "./service.mjs";
 import { COMPOSE_CANVAS_ID } from "./tools.mjs";
 
 const draftProperties = {
@@ -10,6 +10,7 @@ const draftProperties = {
     chatId: { type: "string", description: "Existing chat ID from teams_chat_list_chats. Replaces to." },
     chatLabel: { type: "string", description: "Display name for chatId, shown to the user." },
     topic: { type: "string", description: "Name for a new group chat, if one has to be created." },
+    webhook: { type: "string", description: "Name of a saved Teams workflow webhook. Replaces to and chatId." },
     message: { type: "string", description: "Draft message (Markdown unless format is text)." },
     format: { type: "string", enum: ["markdown", "text"] },
 };
@@ -20,7 +21,7 @@ const draftProperties = {
  * only the user's click does.
  */
 export function createComposeCanvas({ createCanvas, CanvasError, service, session, draftsDir }) {
-    const { auth, graph } = service;
+    const { auth } = service;
     let sessionId;
     const drafts = new DraftStore(() => draftsDir(sessionId));
     const instances = new Map(); // instanceId -> { server, draftId }
@@ -32,7 +33,11 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     };
     auth.on("change", () => broadcastAll());
 
-    const stateFor = async (draftId) => ({ auth: await auth.status(), draft: await drafts.get(draftId) });
+    const stateFor = async (draftId) => ({
+        auth: await auth.status(),
+        draft: await drafts.get(draftId),
+        webhooks: await service.webhooks.list(),
+    });
 
     const updateDraft = async (draftId, patch, extra = {}) => {
         const draft = { ...applyDraftPatch(await drafts.get(draftId), patch), ...extra };
@@ -42,21 +47,19 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     };
 
     const handleSend = async (draftId, { confirm, fingerprint }) => {
-        let account;
-        try {
-            account = await requireAccount(auth);
-        } catch (err) {
-            throw new Error(describeError(err));
-        }
         const draft = await drafts.get(draftId);
         try {
-            const html = renderMessage(draft.message, draft.format);
-            const plan = await planSend({ graph, account, chatId: draft.chatId, to: draft.to, topic: draft.topic });
+            const { plan, payload, account } = await prepareSend({
+                service,
+                target: { webhook: draft.webhook, chatId: draft.chatId, to: draft.to, topic: draft.topic },
+                message: draft.message,
+                format: draft.format,
+            });
             // The user confirms a specific target and message. If either changed
             // since (for example the agent updated the draft), ask again.
-            const current = planFingerprint(plan, html);
+            const current = planFingerprint(plan, payload);
             if (!confirm || fingerprint !== current) return { needsConfirm: true, label: plan.label, fingerprint: current };
-            const result = await executeSend({ graph, account, plan, html });
+            const result = await deliver({ service, plan, payload, account });
             const sent = {
                 ...draft,
                 message: "",

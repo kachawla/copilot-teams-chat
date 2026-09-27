@@ -6,12 +6,24 @@ Ask Copilot things like "tell Alice the release build is green and link the PR" 
 
 ![Teams Chat for GitHub Copilot](assets/preview.png)
 
+## Two ways to send
+
+| | As you (Microsoft Graph) | Teams workflow webhook |
+| --- | --- | --- |
+| Setup | Sign in once | Create a workflow in Teams for each chat or channel |
+| Admin approval | Needed if your org turned off user consent | Not needed |
+| Posts as | You | The Workflows bot |
+| Targets | Any person, group, or chat, picked per message | The chat or channel the workflow was set up for |
+
+Use sign-in if you can. If sign-in stops at **Need admin approval**, use webhooks (see [Admin approval](#admin-approval)).
+
 ## Features
 
 - **Send to people, groups, or existing chats.** One recipient uses your 1:1 chat with them. Several recipients reuse the group chat that has exactly those members, or create one. You can also target any chat by ID, or yourself ("me" sends to your Notes to self chat).
 - **Confirmation before every send.** Each message shows a preview with the resolved recipient, and nothing is sent until you approve it.
 - **No guessing on names.** When a name matches more than one person, Copilot gets the candidates and asks you which one you mean.
 - **Markdown formatting.** Bold, italics, code, links, lists, quotes, and code blocks are converted to Teams formatting. Raw HTML is escaped.
+- **Works without sign-in.** Save Teams workflow webhooks by name and send to them when your organization requires admin approval for sign-in.
 - **Compose canvas.** A side panel where Copilot fills in a draft and you edit it, preview the Teams formatting, and click Send. Copilot cannot send from the canvas; only your click does.
 - **No dependencies.** Plain Node.js built-ins. Sign-in uses the Microsoft identity platform directly (authorization code with PKCE on a loopback redirect, or device code).
 
@@ -41,6 +53,7 @@ Just ask. For example:
 - "What are my recent Teams chats?" then "Post that in the Launch plan chat."
 - "Send these notes to myself in Teams."
 - "Open a Teams draft to Alice so I can edit it before sending."
+- "Save this Teams workflow URL as release channel: https://…" then "Post the release notes to release channel."
 
 The first time, Copilot opens the Microsoft sign-in page in your browser. Your sign-in is saved, so you only do this once per machine. If the browser flow is blocked, ask for a device code sign-in instead.
 
@@ -53,11 +66,14 @@ The first time, Copilot opens the Microsoft sign-in page in your browser. Your s
 | `teams_chat_sign_out` | Signs out and deletes the saved sign-in. |
 | `teams_chat_list_chats` | Lists recent chats with their IDs. Can filter by chat name or member. |
 | `teams_chat_find_people` | Looks up people in your organization by name or email. |
-| `teams_chat_send_message` | Sends a message after you confirm it. |
+| `teams_chat_send_message` | Sends a message after you confirm it: to people, a chat, or a saved webhook. |
+| `teams_chat_add_webhook` | Saves a Teams workflow webhook URL under a name, after you confirm it. |
+| `teams_chat_list_webhooks` | Lists saved webhooks by name. URLs are never shown. |
+| `teams_chat_remove_webhook` | Deletes a saved webhook. |
 
 ### Compose canvas
 
-The `teams-chat-compose` canvas opens a draft panel. Copilot can prefill it (`to`, `chatId`, `topic`, `message`, `format`) and update it with the `update_draft` action. It can read your edits back with `get_draft`. Drafts are stored per Copilot session, so they survive panel reloads.
+The `teams-chat-compose` canvas opens a draft panel. Copilot can prefill it (`to`, `chatId`, `webhook`, `topic`, `message`, `format`) and update it with the `update_draft` action. It can read your edits back with `get_draft`. Drafts are stored per Copilot session, so they survive panel reloads.
 
 ## Permissions
 
@@ -86,6 +102,19 @@ Many organizations turn off user consent. When they do, sign-in stops at a **Nee
   ```
 
 - **Use an app your admin approves.** Register your own app (see below), have an admin grant consent for it, and set its `clientId`.
+- **Use a Teams workflow webhook instead.** No sign-in or admin approval. See the next section.
+
+### Teams workflow webhooks
+
+1. In Teams, open the chat or channel you want to post to.
+2. Open **More options** (**...**) > **Workflows**, and choose the template **Send webhook alerts to a chat** (or **to a channel**).
+3. Finish the steps and copy the webhook URL it shows.
+4. In Copilot, say "Save this Teams workflow as team chat: <URL>". Copilot asks you to confirm before saving it.
+5. Send with "Post to team chat in Teams: ...".
+
+Messages are sent as Adaptive Cards and appear from the Workflows bot, with your workflow's name. Text supports bold, italics, links, and lists. Headings and code blocks get their own styling.
+
+Anyone who has a webhook URL can post to that chat, so treat it like a password. The extension stores URLs in `~/.copilot/teams-chat/webhooks.json` (owner-only) and never shows them back. It only accepts Teams Workflows hosts (`*.logic.azure.com`, `*.powerplatform.com`, their US government equivalents, and legacy `*.webhook.office.com`). To allow another host, add it to `allowedWebhookHosts` in `config.json`.
 
 ## Configuration
 
@@ -104,6 +133,7 @@ Optional settings go in `~/.copilot/teams-chat/config.json` (or `$COPILOT_HOME/t
 | `clientId` | Microsoft Graph Command Line Tools | Your own app registration. Also settable with `TEAMS_CHAT_CLIENT_ID`. |
 | `tenantId` | `organizations` | Tenant ID or domain. Also settable with `TEAMS_CHAT_TENANT_ID`. |
 | `confirmBeforeSend` | `true` | Set to `false` to send without the confirmation prompt. Not recommended. |
+| `allowedWebhookHosts` | `[]` | Extra host suffixes accepted for webhook URLs, for example `["contoso.com"]`. |
 | `authorityHost` | `https://login.microsoftonline.com` | For national clouds. |
 | `graphBaseUrl` | `https://graph.microsoft.com/v1.0` | For national clouds. |
 
@@ -118,13 +148,14 @@ Optional settings go in `~/.copilot/teams-chat/config.json` (or `$COPILOT_HOME/t
 
 - **Your sign-in stays on your machine.** The refresh token is saved to `~/.copilot/teams-chat/auth.json` with owner-only permissions (`0600`, in a `0700` folder). The access token is kept in memory only. Sign out to delete the file.
 - **Tokens only go to Microsoft.** Graph requests are refused if the URL is not under the configured Graph base URL.
+- **New webhook destinations are confirmed.** Saving a webhook always asks you first, and only Teams Workflows hosts are accepted, so a prompt in untrusted content can't quietly add somewhere to send your data.
 - **Every send is confirmed.** The send tool asks you to approve the exact recipient and message. If the client can't show a confirmation prompt, the tool refuses to send and suggests the compose canvas instead.
 - **The compose canvas is locked to its panel.** It listens on `127.0.0.1` only, checks the `Host` header, requires a random per-panel token on every API call, and serves a strict Content Security Policy.
 - **Messages are sent as you.** Recipients see them as coming from your account. Copilot is told to write in your voice and not add an "AI generated" signature unless you ask.
 
 ## Limitations
 
-- Teams channels are not supported yet, only chats (1:1, group, and meeting chats).
+- When signed in, Teams channels are not supported yet, only chats (1:1, group, and meeting chats). A workflow webhook can post to a channel.
 - Messages are text with formatting. Attachments, images, @mentions, and Adaptive Cards are not supported yet.
 - Messages can be up to about 28 KB of HTML.
 
@@ -147,6 +178,8 @@ com.github.copilot/extensions/teams-chat/
   lib/auth.mjs                                sign-in (PKCE loopback, device code), token refresh
   lib/graph.mjs                               Microsoft Graph client (retries, 401 refresh)
   lib/send.mjs                                recipient resolution and sending
+  lib/webhooks.mjs                            Teams workflow webhooks: storage, Adaptive Cards, posting
+  lib/delivery.mjs                            picks Graph or webhook for a send
   lib/markdown.mjs                            Markdown to Teams HTML
   lib/tools.mjs                               agent tools
   lib/canvas.mjs, lib/compose-server.mjs      compose canvas and its loopback server
