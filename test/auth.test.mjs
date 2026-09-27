@@ -57,6 +57,23 @@ test("callback with the wrong state is rejected and does not complete sign-in", 
     assert.equal((await ctx.service.auth.status()).signedIn, true);
 });
 
+test("admin consent errors explain what to do", async (t) => {
+    const ctx = await setup({ signedIn: false });
+    t.after(ctx.cleanup);
+    ctx.cloud.state.authorizeError = {
+        error: "access_denied",
+        error_description: "AADSTS90094: The grant requires admin permission.",
+    };
+    const pending = await ctx.service.auth.startSignIn({ method: "browser" });
+    const page = await fakeBrowser(pending.url);
+    assert.equal(page.status, 400);
+    assert.match(page.body, /Admin approval required/);
+    await assert.rejects(ctx.service.auth.getAccessToken({ waitForPendingMs: 2000 }), NotSignedInError);
+    const status = await ctx.service.auth.status();
+    assert.match(status.lastError, /admin approval is required/);
+    assert.match(status.lastError, /Admin approval" in the README/);
+});
+
 test("a new process reuses the saved sign-in via refresh token", async (t) => {
     const ctx = await setup();
     t.after(ctx.cleanup);

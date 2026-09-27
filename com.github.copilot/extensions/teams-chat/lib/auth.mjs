@@ -31,6 +31,25 @@ export function decodeJwtClaims(token) {
     }
 }
 
+// AADSTS65001 consent_required, 65004 user declined consent, 90094/90095 admin consent required.
+const CONSENT_ERROR = /AADSTS(65001|65004|90094|90095)\b/;
+
+export const ADMIN_CONSENT_HELP =
+    "Your organization requires an admin to approve this app for the Teams chat permissions. " +
+    "Ask your IT admin to grant admin consent (use \"Request approval\" on the sign-in page if it is offered), " +
+    "or configure an app registration your admin has approved. See \"Admin approval\" in the README.";
+
+export function isConsentError(error, description = "") {
+    return error === "consent_required" || CONSENT_ERROR.test(String(description));
+}
+
+function signInFailure(res, prefix = "Sign-in failed") {
+    if (isConsentError(res.error, res.error_description)) {
+        return new AuthError(`${prefix}: admin approval is required. ${ADMIN_CONSENT_HELP}`, "admin_consent_required");
+    }
+    return new AuthError(`${prefix}: ${describeTokenError(res)}`, res.error);
+}
+
 function describeTokenError(res) {
     const description = String(res.error_description || "").split(/\r?\n/)[0];
     return description ? `${res.error}: ${description}` : String(res.error);
@@ -208,7 +227,7 @@ export class AuthManager extends EventEmitter {
             throw new NotSignedInError();
         }
         if (res.error) {
-            if (res.error === "invalid_grant" || res.error === "interaction_required") {
+            if (res.error === "invalid_grant" || res.error === "interaction_required" || isConsentError(res.error, res.error_description)) {
                 await this.signOut();
                 throw new NotSignedInError(
                     `Your Microsoft Teams sign-in expired (${describeTokenError(res)}). Call teams_chat_sign_in to sign in again.`,
@@ -355,9 +374,9 @@ export class AuthManager extends EventEmitter {
                 return;
             }
             if (params.has("error")) {
-                const err = describeTokenError({ error: params.get("error"), error_description: params.get("error_description") });
-                send(400, "Sign-in failed", err);
-                settle.reject(new AuthError(`Sign-in failed: ${err}`, params.get("error")));
+                const failure = signInFailure({ error: params.get("error"), error_description: params.get("error_description") });
+                send(400, failure.code === "admin_consent_required" ? "Admin approval required" : "Sign-in failed", failure.message.replace(/^Sign-in failed: /, ""));
+                settle.reject(failure);
                 return;
             }
             settled = true;
@@ -370,8 +389,9 @@ export class AuthManager extends EventEmitter {
             }).then(
                 (res2) => {
                     if (res2.error) {
-                        send(400, "Sign-in failed", describeTokenError(res2));
-                        settle.reject(new AuthError(`Sign-in failed: ${describeTokenError(res2)}`, res2.error));
+                        const failure = signInFailure(res2);
+                        send(400, "Sign-in failed", failure.message.replace(/^Sign-in failed: /, ""));
+                        settle.reject(failure);
                     } else {
                         send(200, "Signed in to Microsoft Teams", "You can close this tab and return to GitHub Copilot.");
                         settle.resolve(res2);
@@ -443,7 +463,7 @@ export class AuthManager extends EventEmitter {
         });
         const dc = await response.json().catch(() => ({ error: `http_${response.status}` }));
         if (!response.ok || dc.error) {
-            throw new AuthError(`Could not start device code sign-in: ${describeTokenError(dc)}`, dc.error);
+            throw signInFailure(dc, "Could not start device code sign-in");
         }
 
         let cancelled = false;
@@ -463,7 +483,7 @@ export class AuthManager extends EventEmitter {
                     interval += 5000;
                     continue;
                 }
-                throw new AuthError(`Sign-in failed: ${describeTokenError(res)}`, res.error);
+                throw signInFailure(res);
             }
             throw cancelled
                 ? new AuthError("Sign-in cancelled.", "cancelled")

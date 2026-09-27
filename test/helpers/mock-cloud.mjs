@@ -41,6 +41,7 @@ export async function startMockCloud() {
             { id: "19:team-chat@thread.v2", chatType: "group", topic: null, members: [member(ME), member(USERS[3]), member(USERS[4])], lastUpdatedDateTime: "2026-09-25T10:00:00Z" },
             { id: "19:launch@thread.v2", chatType: "group", topic: "Launch plan", members: [member(ME), member(USERS[1]), member(USERS[3]), member(USERS[4])], lastUpdatedDateTime: "2026-09-24T10:00:00Z" },
         ],
+        authorizeError: null, // { error, error_description } to return from /authorize
         rejectOrderBy: 0, // status to return when $orderby is used
     };
 
@@ -94,6 +95,13 @@ export async function startMockCloud() {
                     redirectUri: url.searchParams.get("redirect_uri"),
                 });
                 const back = new URL(url.searchParams.get("redirect_uri"));
+                if (state.authorizeError) {
+                    for (const [k, v] of Object.entries(state.authorizeError)) back.searchParams.set(k, v);
+                    back.searchParams.set("state", url.searchParams.get("state"));
+                    res.writeHead(302, { Location: back.toString() });
+                    res.end();
+                    return;
+                }
                 back.searchParams.set("code", code);
                 back.searchParams.set("state", url.searchParams.get("state"));
                 res.writeHead(302, { Location: back.toString() });

@@ -75,6 +75,18 @@ The extension never reads your messages.
 
 By default, sign-in uses Microsoft's public **Microsoft Graph Command Line Tools** app registration (`14d82eec-204b-4c2f-b7e8-296a70dab67e`), the same client that Microsoft Graph PowerShell uses. If your organization requires admin consent for these scopes, or blocks that app, ask your admin to approve it, or use your own app registration (see below).
 
+### Admin approval
+
+Many organizations turn off user consent. When they do, sign-in stops at a **Need admin approval** page for Microsoft Graph Command Line Tools. This is your tenant's policy, and the extension cannot get around it. A new app registration of your own is subject to the same policy. You have two options:
+
+- **Ask for approval.** If the page offers **Request approval**, submit it. Otherwise, send your IT admin the admin consent link below, with your tenant ID in place of `<tenant>`:
+
+  ```text
+  https://login.microsoftonline.com/<tenant>/v2.0/adminconsent?client_id=14d82eec-204b-4c2f-b7e8-296a70dab67e&scope=https://graph.microsoft.com/ChatMessage.Send https://graph.microsoft.com/Chat.ReadBasic https://graph.microsoft.com/Chat.Create https://graph.microsoft.com/User.ReadBasic.All
+  ```
+
+- **Use an app your admin approves.** Register your own app (see below), have an admin grant consent for it, and set its `clientId`.
+
 ## Configuration
 
 Optional settings go in `~/.copilot/teams-chat/config.json` (or `$COPILOT_HOME/teams-chat/config.json`):
