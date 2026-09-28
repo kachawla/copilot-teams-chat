@@ -1,8 +1,6 @@
-// Converts a small, safe subset of Markdown to the HTML that Teams renders.
-// All input is HTML-escaped first, so raw HTML in the source is shown as text.
-// Browser-compatible: the compose canvas imports this file for its preview.
-
-export const MAX_MESSAGE_BYTES = 28_000;
+// Converts a small, safe subset of Markdown to HTML for the compose canvas
+// preview. All input is HTML-escaped first, so raw HTML in the source is shown
+// as text. Browser-compatible: the canvas page imports this file directly.
 
 export function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);

@@ -1,27 +1,22 @@
 import { createHash } from "node:crypto";
 import { startComposeServer } from "./compose-server.mjs";
-import { DraftStore, applyDraftPatch, validDraftId } from "./drafts.mjs";
 import { deliver, planFingerprint, prepareSend } from "./delivery.mjs";
+import { DraftStore, applyDraftPatch, validDraftId } from "./drafts.mjs";
 import { describeError } from "./service.mjs";
 import { COMPOSE_CANVAS_ID } from "./tools.mjs";
 
 const draftProperties = {
-    to: { type: "array", items: { type: "string" }, description: 'Recipients: email addresses or full names; "me" for Notes to self.' },
-    chatId: { type: "string", description: "Existing chat ID from teams_chat_list_chats. Replaces to." },
-    chatLabel: { type: "string", description: "Display name for chatId, shown to the user." },
-    topic: { type: "string", description: "Name for a new group chat, if one has to be created." },
-    webhook: { type: "string", description: "Name of a saved Teams workflow webhook. Replaces to and chatId." },
+    webhook: { type: "string", description: "Name of the saved Teams workflow to post to." },
     message: { type: "string", description: "Draft message (Markdown unless format is text)." },
     format: { type: "string", enum: ["markdown", "text"] },
 };
 
 /**
  * Compose canvas: the agent fills in a draft, the user edits it, previews the
- * Teams formatting, and clicks Send. The agent cannot send from the canvas;
- * only the user's click does.
+ * formatting, and clicks Send. The agent cannot send from the canvas; only
+ * the user's click does.
  */
 export function createComposeCanvas({ createCanvas, CanvasError, service, session, draftsDir }) {
-    const { auth } = service;
     let sessionId;
     const drafts = new DraftStore(() => draftsDir(sessionId));
     const instances = new Map(); // instanceId -> { server, draftId }
@@ -31,10 +26,9 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
             if (!draftId || entry.draftId === draftId) await entry.server.broadcast().catch(() => {});
         }
     };
-    auth.on("change", () => broadcastAll());
+    service.webhooks.onChange(() => broadcastAll());
 
     const stateFor = async (draftId) => ({
-        auth: await auth.status(),
         draft: await drafts.get(draftId),
         webhooks: await service.webhooks.list(),
     });
@@ -49,38 +43,25 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     const handleSend = async (draftId, { confirm, fingerprint }) => {
         const draft = await drafts.get(draftId);
         try {
-            const { plan, payload, account } = await prepareSend({
-                service,
-                target: { webhook: draft.webhook, chatId: draft.chatId, to: draft.to, topic: draft.topic },
-                message: draft.message,
-                format: draft.format,
-            });
-            // The user confirms a specific target and message. If either changed
-            // since (for example the agent updated the draft), ask again.
+            const { plan, payload } = await prepareSend({ service, webhook: draft.webhook, message: draft.message, format: draft.format });
+            // The user confirms a specific destination and message. If either
+            // changed since (for example the agent updated the draft), ask again.
             const current = planFingerprint(plan, payload);
             if (!confirm || fingerprint !== current) return { needsConfirm: true, label: plan.label, fingerprint: current };
-            const result = await deliver({ service, plan, payload, account });
-            const sent = {
+            const result = await deliver({ service, plan, payload });
+            await drafts.save({
                 ...draft,
+                webhook: plan.webhookName,
                 message: "",
                 lastResult: {
                     ok: true,
-                    label: plan.label,
-                    chatId: result.chatId,
-                    messageId: result.messageId,
-                    webUrl: result.webUrl,
+                    label: result.label,
                     sentAt: new Date().toISOString(),
                     messagePreview: draft.message.slice(0, 200),
                 },
-            };
-            if (plan.kind === "oneOnOne" || plan.kind === "newGroup") {
-                sent.chatId = result.chatId;
-                sent.chatLabel = plan.label.replace(/^(a new |1:1 chat with )/, "");
-                sent.to = [];
-            }
-            await drafts.save(sent);
+            });
             await broadcastAll(draftId);
-            await session.log?.(`Sent a Teams message to ${plan.label} from the compose canvas.`);
+            await session.log?.(`Sent a Teams message to ${result.label} from the compose canvas.`);
             return { sent: true, state: await stateFor(draftId) };
         } catch (err) {
             throw new Error(describeError(err));
@@ -92,7 +73,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     return createCanvas({
         id: COMPOSE_CANVAS_ID,
         displayName: "Teams message",
-        description: "Draft, preview, and send a Microsoft Teams chat message; the user reviews it and clicks Send.",
+        description: "Draft, preview, and send a Microsoft Teams message through a saved workflow; the user reviews it and clicks Send.",
         inputSchema: {
             type: "object",
             properties: {
@@ -103,7 +84,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
         actions: [
             {
                 name: "update_draft",
-                description: "Replace fields of the draft shown in this panel (recipients, chat, topic, message, format).",
+                description: "Replace fields of the draft shown in this panel (webhook, message, format).",
                 inputSchema: { type: "object", properties: draftProperties },
                 handler: async (ctx) => {
                     sessionId ??= ctx.sessionId;
@@ -145,14 +126,6 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
                         return stateFor(entry.draftId);
                     },
                     onSend: (body) => handleSend(entry.draftId, body),
-                    onSignIn: async (method) => {
-                        await auth.startSignIn({ method, force: true });
-                        return stateFor(entry.draftId);
-                    },
-                    onSignOut: async () => {
-                        await auth.signOut();
-                        return stateFor(entry.draftId);
-                    },
                 });
                 entry = { server, draftId };
                 instances.set(ctx.instanceId, entry);

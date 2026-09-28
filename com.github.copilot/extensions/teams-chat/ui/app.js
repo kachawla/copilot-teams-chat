@@ -1,28 +1,11 @@
 import { toTeamsHtml } from "./markdown.mjs";
-import { splitRecipients } from "./recipients.mjs";
 
 const token = new URLSearchParams(location.search).get("token") || "";
 const $ = (id) => document.getElementById(id);
 const els = {
-    account: $("account"),
-    accountName: $("account-name"),
-    signOut: $("sign-out"),
-    signin: $("signin"),
-    signInBrowser: $("sign-in-browser"),
-    signInDevice: $("sign-in-device"),
-    signinPending: $("signin-pending"),
-    signinError: $("signin-error"),
+    setup: $("setup"),
     form: $("compose"),
-    viaField: $("via-field"),
     via: $("via"),
-    viaNote: $("via-note"),
-    chatTarget: $("chat-target"),
-    chatLabel: $("chat-label"),
-    changeChat: $("change-chat"),
-    toField: $("to-field"),
-    to: $("to"),
-    topicField: $("topic-field"),
-    topic: $("topic"),
     format: $("format"),
     message: $("message"),
     preview: $("preview"),
@@ -61,10 +44,6 @@ function setText(el, text) {
     show(el, Boolean(text));
 }
 
-function recipientCount() {
-    return splitRecipients(els.to.value).length;
-}
-
 function hideConfirm() {
     show(els.confirm, false);
     delete els.confirm.dataset.fingerprint;
@@ -79,67 +58,40 @@ function syncField(el, value) {
     if (document.activeElement !== el && el.value !== value) el.value = value;
 }
 
+function selectedWebhook() {
+    return els.via.value || null;
+}
+
 function render(next) {
     // Any change to the draft (including from the agent) invalidates a pending confirmation.
     if (state && next.draft.updatedAt !== state.draft.updatedAt) hideConfirm();
     state = next;
-    const { auth, draft } = state;
-
+    const { draft } = state;
     const webhooks = state.webhooks || [];
-    const usingWebhook = Boolean(draft.webhook);
-    show(els.viaField, webhooks.length > 0 || usingWebhook);
-    const options = [["", "As me, to people or a chat (needs sign-in)"], ...webhooks.map((w) => [w.name, `Teams workflow: ${w.name}${w.description ? ` (${w.description})` : ""}`])];
-    if (usingWebhook && !webhooks.some((w) => w.name === draft.webhook)) options.push([draft.webhook, `Teams workflow: ${draft.webhook} (not found)`]);
+
+    show(els.setup, webhooks.length === 0);
+    const options = webhooks.map((w) => [w.name, `${w.name}${w.description ? ` (${w.description})` : ""}`]);
+    if (draft.webhook && !webhooks.some((w) => w.name.toLowerCase() === draft.webhook.toLowerCase())) {
+        options.push([draft.webhook, `${draft.webhook} (not found)`]);
+    }
+    if (webhooks.length > 1 && !draft.webhook) options.unshift(["", "Choose a workflow"]);
     const optionsKey = JSON.stringify(options);
     if (els.via.dataset.options !== optionsKey) {
         els.via.dataset.options = optionsKey;
         els.via.replaceChildren(...options.map(([value, label]) => Object.assign(document.createElement("option"), { value, textContent: label })));
     }
-    if (document.activeElement !== els.via) els.via.value = draft.webhook || "";
-    show(els.viaNote, usingWebhook);
-
-    show(els.account, auth.signedIn);
-    els.accountName.textContent = auth.account
-        ? `Signed in as ${auth.account.displayName || auth.account.username}${auth.account.username && auth.account.displayName ? ` (${auth.account.username})` : ""}`
-        : "";
-    show(els.signin, !auth.signedIn && !usingWebhook);
-    const pending = auth.pending;
-    if (pending?.method === "device_code") {
-        els.signinPending.replaceChildren(
-            "Go to ",
-            Object.assign(document.createElement("a"), { href: pending.verificationUri, target: "_blank", rel: "noopener", textContent: pending.verificationUri }),
-            " and enter ",
-            Object.assign(document.createElement("code"), { className: "user-code", textContent: pending.userCode }),
-        );
-        show(els.signinPending, true);
-    } else if (pending?.method === "browser") {
-        els.signinPending.replaceChildren(
-            "Finish signing in in your browser. ",
-            Object.assign(document.createElement("a"), { href: pending.url, target: "_blank", rel: "noopener", textContent: "Open the sign-in page again" }),
-        );
-        show(els.signinPending, true);
-    } else {
-        show(els.signinPending, false);
+    if (document.activeElement !== els.via) {
+        const match = webhooks.find((w) => w.name.toLowerCase() === (draft.webhook || "").toLowerCase());
+        els.via.value = match ? match.name : draft.webhook || (webhooks.length === 1 ? webhooks[0].name : "");
     }
-    setText(els.signinError, auth.lastError);
+    els.via.disabled = options.length === 0;
 
-    const hasChat = Boolean(draft.chatId) && !usingWebhook;
-    show(els.chatTarget, hasChat);
-    els.chatLabel.textContent = draft.chatLabel || draft.chatId || "";
-    show(els.toField, !hasChat && !usingWebhook);
-    syncField(els.to, (draft.to || []).join(", "));
-    syncField(els.topic, draft.topic || "");
     syncField(els.message, draft.message || "");
     if (document.activeElement !== els.format) els.format.value = draft.format || "markdown";
-    show(els.topicField, !hasChat && !usingWebhook && recipientCount() > 1);
 
     const last = draft.lastResult;
     if (last?.ok) {
-        els.result.replaceChildren(`Sent to ${last.label} at ${new Date(last.sentAt).toLocaleTimeString()}. `);
-        if (last.webUrl) {
-            els.result.append(Object.assign(document.createElement("a"), { href: last.webUrl, target: "_blank", rel: "noopener", textContent: "Open in Teams" }));
-        }
-        show(els.result, true);
+        setText(els.result, `Sent to ${last.label} at ${new Date(last.sentAt).toLocaleTimeString()}.`);
     } else {
         show(els.result, false);
     }
@@ -149,10 +101,7 @@ function render(next) {
 }
 
 function updateSendButton() {
-    const viaWebhook = Boolean(els.via.value);
-    const ready =
-        els.message.value.trim() && (viaWebhook || (state?.auth.signedIn && (state.draft.chatId || recipientCount() > 0)));
-    els.send.disabled = busy || !ready;
+    els.send.disabled = busy || !els.message.value.trim() || !selectedWebhook();
 }
 
 function queueSave(patch) {
@@ -161,7 +110,6 @@ function queueSave(patch) {
     saveTimer = setTimeout(flushSave, 400);
     hideConfirm();
     renderPreview();
-    show(els.topicField, !els.via.value && !state?.draft.chatId && recipientCount() > 1);
     updateSendButton();
 }
 
@@ -193,29 +141,15 @@ async function run(label, fn) {
     }
 }
 
-els.to.addEventListener("input", () => queueSave({ to: els.to.value }));
-els.topic.addEventListener("input", () => queueSave({ topic: els.topic.value }));
 els.message.addEventListener("input", () => queueSave({ message: els.message.value }));
 els.format.addEventListener("change", () => queueSave({ format: els.format.value }));
-els.via.addEventListener("change", () => {
-    const webhook = els.via.value || null;
-    const usingWebhook = Boolean(webhook);
-    show(els.viaNote, usingWebhook);
-    show(els.toField, !usingWebhook && !state?.draft.chatId);
-    show(els.chatTarget, !usingWebhook && Boolean(state?.draft.chatId));
-    show(els.signin, !usingWebhook && !state?.auth.signedIn);
-    queueSave({ webhook });
-});
-els.changeChat.addEventListener("click", () => {
-    queueSave({ chatId: null, chatLabel: null });
-    show(els.chatTarget, false);
-    show(els.toField, true);
-    els.to.focus();
-});
+els.via.addEventListener("change", () => queueSave({ webhook: selectedWebhook() }));
 
 els.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    run("Checking recipients…", async () => {
+    run("Checking…", async () => {
+        // Save the shown workflow too, so a single saved workflow is used even if never picked.
+        queueSave({ webhook: selectedWebhook() });
         await flushSave();
         const res = await api("/api/send", { confirm: false });
         els.confirmText.textContent = `Send this message to ${res.label}?`;
@@ -242,9 +176,6 @@ els.confirmSend.addEventListener("click", () => {
 });
 
 els.confirmCancel.addEventListener("click", hideConfirm);
-els.signInBrowser.addEventListener("click", () => run("Opening sign-in…", async () => render(await api("/api/sign-in", { method: "browser" }))));
-els.signInDevice.addEventListener("click", () => run("Requesting a code…", async () => render(await api("/api/sign-in", { method: "device_code" }))));
-els.signOut.addEventListener("click", () => run("Signing out…", async () => render(await api("/api/sign-out", {}))));
 
 const events = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
 events.onmessage = (event) => {

@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { copilotHome } from "./config.mjs";
-import { splitRecipients } from "./recipients.mjs";
 
 const DRAFT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -12,11 +11,7 @@ export function validDraftId(id) {
 export function emptyDraft(draftId) {
     return {
         draftId,
-        to: [],
-        chatId: null,
-        chatLabel: null,
         webhook: null,
-        topic: null,
         message: "",
         format: "markdown",
         lastResult: null,
@@ -25,33 +20,11 @@ export function emptyDraft(draftId) {
     };
 }
 
-const EDITABLE = ["to", "chatId", "chatLabel", "webhook", "topic", "message", "format"];
-
 export function applyDraftPatch(draft, patch = {}) {
     const next = { ...draft };
-    for (const key of EDITABLE) {
-        if (patch[key] === undefined) continue;
-        if (key === "to") {
-            next.to = splitRecipients(patch.to);
-        } else if (key === "format") {
-            next.format = patch.format === "text" ? "text" : "markdown";
-        } else {
-            next[key] = patch[key] === null || patch[key] === "" ? (key === "message" ? "" : null) : String(patch[key]);
-        }
-    }
-    // Choosing recipients, a chat, or a webhook replaces the other targets.
-    if (patch.to !== undefined && patch.chatId === undefined && next.to.length) {
-        next.chatId = null;
-        next.chatLabel = null;
-    }
-    if (patch.chatId && patch.to === undefined) next.to = [];
-    if (patch.webhook) {
-        next.to = [];
-        next.chatId = null;
-        next.chatLabel = null;
-    } else if ((patch.to !== undefined && next.to.length) || patch.chatId) {
-        next.webhook = null;
-    }
+    if (patch.webhook !== undefined) next.webhook = patch.webhook ? String(patch.webhook) : null;
+    if (patch.message !== undefined) next.message = patch.message == null ? "" : String(patch.message);
+    if (patch.format !== undefined) next.format = patch.format === "text" ? "text" : "markdown";
     return next;
 }
 

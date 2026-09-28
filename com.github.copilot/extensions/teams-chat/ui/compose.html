@@ -11,48 +11,18 @@
     <main>
         <header>
             <h1>Teams message</h1>
-            <div id="account" class="account" hidden>
-                <span class="dot" aria-hidden="true"></span>
-                <span id="account-name"></span>
-                <button id="sign-out" type="button" class="link">Sign out</button>
-            </div>
         </header>
 
-        <section id="signin" class="panel" hidden>
-            <p><strong>Sign in to Microsoft Teams</strong> with your work or school account to send messages.</p>
-            <div class="row">
-                <button id="sign-in-browser" type="button" class="primary">Sign in with browser</button>
-                <button id="sign-in-device" type="button">Use a device code</button>
-            </div>
-            <p id="signin-pending" class="muted" hidden></p>
-            <p id="signin-error" class="error" hidden></p>
+        <section id="setup" class="panel" hidden>
+            <p><strong>No Teams workflow saved yet.</strong></p>
+            <p>In Teams, open <strong>Apps &gt; Workflows</strong> (or <strong>make.powerautomate.com &gt; Templates</strong>), choose <strong>Send webhook alerts to a chat</strong> or <strong>to a channel</strong>, pick where to post, and copy the URL it shows. Then ask Copilot to save it, for example: "Save this Teams workflow as team chat: &lt;URL&gt;".</p>
         </section>
 
         <form id="compose" autocomplete="off">
-            <label id="via-field" class="field" hidden>
-                <span class="label">Send</span>
-                <select id="via" class="wide">
-                    <option value="">As me, to people or a chat (needs sign-in)</option>
-                </select>
-                <span id="via-note" class="muted" hidden>Posts as the Workflows bot to wherever this workflow was set up.</span>
-            </label>
-
-            <div id="chat-target" class="field" hidden>
-                <span class="label">Chat</span>
-                <div class="row">
-                    <span id="chat-label" class="chip"></span>
-                    <button id="change-chat" type="button" class="link">Change</button>
-                </div>
-            </div>
-
-            <label id="to-field" class="field">
-                <span class="label">To</span>
-                <input id="to" type="text" placeholder="Email addresses or names, separated by semicolons. Use &quot;me&quot; for Notes to self.">
-            </label>
-
-            <label id="topic-field" class="field" hidden>
-                <span class="label">Group chat name <span class="muted">(only used when a new group chat is created)</span></span>
-                <input id="topic" type="text" maxlength="250">
+            <label class="field">
+                <span class="label">Post to</span>
+                <select id="via" class="wide"></select>
+                <span class="muted">Posts from the Workflows bot to the chat or channel this workflow was set up for.</span>
             </label>
 
             <div class="field">

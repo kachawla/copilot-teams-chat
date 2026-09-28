@@ -26,20 +26,5 @@ const draftsDir = createDraftsDirResolver({
 
 session = await joinSession({
     tools: createTools({ service, session: sessionRef }),
-    canvases: [
-        createComposeCanvas({
-            createCanvas,
-            CanvasError,
-            service,
-            session: sessionRef,
-            draftsDir,
-        }),
-    ],
-});
-
-service.auth.on("signed-in", (account) => {
-    session.log(`Signed in to Microsoft Teams as ${account.displayName || account.username}.`);
-});
-service.auth.on("sign-in-failed", (err) => {
-    if (err.code !== "cancelled") session.log(`Microsoft Teams sign-in failed: ${err.message}`, { level: "warning" });
+    canvases: [createComposeCanvas({ createCanvas, CanvasError, service, session: sessionRef, draftsDir })],
 });

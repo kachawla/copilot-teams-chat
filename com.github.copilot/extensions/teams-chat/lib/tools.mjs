@@ -1,169 +1,70 @@
-import { deliver, prepareSend } from "./delivery.mjs";
-import { SELF_CHAT_ID, confirmationText } from "./send.mjs";
-import { describeError, describePending, failure, findPeople, formatAccount, matchesQuery, requireAccount } from "./service.mjs";
-import { formatPerson } from "./send.mjs";
+import { confirmationText, deliver, prepareSend } from "./delivery.mjs";
+import { describeError, failure } from "./service.mjs";
 
 export const COMPOSE_CANVAS_ID = "teams-chat-compose";
-const SIGN_IN_WAIT_MS = 120_000;
 
-function formatDate(value) {
-    if (!value) return "no recent activity";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().slice(0, 16).replace("T", " ") + " UTC";
-}
+// The tool call times out long before an unanswered prompt goes away. An
+// approval that arrives after this is ignored, so a late click can't send a
+// message Copilot already reported as not sent.
+export const CONFIRM_WINDOW_MS = 10 * 60_000;
 
-const CHAT_TYPE = { oneOnOne: "1:1", group: "group", meeting: "meeting" };
+const SETUP_HELP =
+    'In Teams, open Apps > Workflows (or https://make.powerautomate.com > Templates), choose "Send webhook alerts to a chat" ' +
+    '(or "to a channel"), pick where to post, and copy the webhook URL it shows.';
 
 /**
  * Tool definitions. `session` supplies `capabilities`, `ui.confirm`, and `log`;
  * tests pass a fake.
  */
-export function createTools({ service, session }) {
-    const { auth, graph, config, webhooks } = service;
+export function createTools({ service, session, now = Date.now, confirmWindowMs = CONFIRM_WINDOW_MS }) {
+    const { config, webhooks } = service;
+    const canConfirm = () => Boolean(session.capabilities?.ui?.elicitation);
 
-    const noConfirmUi = (what) =>
-        failure(`${what}: this client can't show a confirmation prompt. Open the "${COMPOSE_CANVAS_ID}" canvas so the user can review and send it.`);
-
-    const signIn = {
-        name: "teams_chat_sign_in",
-        description:
-            "Sign in to Microsoft Teams (work or school account) so Copilot can send Teams chat messages for the user. " +
-            "Returns immediately with instructions to show the user; sign-in finishes in the background. " +
-            'Use method "device_code" if the browser flow is blocked or no local browser is available.',
-        parameters: {
-            type: "object",
-            properties: {
-                method: { type: "string", enum: ["browser", "device_code"], description: "Sign-in method. Defaults to browser." },
-                force: { type: "boolean", description: "Start a new sign-in even if already signed in (to switch accounts)." },
-            },
-        },
-        handler: async (args = {}) => {
-            try {
-                const status = await auth.status();
-                if (status.signedIn && !args.force) {
-                    return `Already signed in to Microsoft Teams as ${formatAccount(status.account)}. To switch accounts, call teams_chat_sign_in with force: true.`;
-                }
-                if (status.signedIn && args.force) await auth.signOut();
-                const pending = await auth.startSignIn({ method: args.method || "browser", force: Boolean(args.force) });
-                return `${describePending(pending)}\nSign-in completes automatically once the user finishes; other teams_chat tools wait for it. Tell the user what to do, then continue.`;
-            } catch (err) {
-                return failure(describeError(err));
-            }
-        },
+    /** Resolves "approved", "declined", or "expired". */
+    const confirmWithUser = async (message) => {
+        const askedAt = now();
+        const approved = await session.ui.confirm(message);
+        if (!approved) return "declined";
+        return now() - askedAt > confirmWindowMs ? "expired" : "approved";
     };
+    const expiredResult = (what) => ({
+        textResultForLlm: `${what} The confirmation was answered more than ${Math.round(confirmWindowMs / 60_000)} minutes after it was asked, so it was ignored. Ask again if the user still wants this.`,
+        resultType: "rejected",
+    });
 
     const status = {
         name: "teams_chat_status",
-        description: "Show whether Copilot is signed in to Microsoft Teams, as which account, and any sign-in in progress.",
+        description: "Show the saved Teams workflow webhooks and whether sends are confirmed.",
         parameters: { type: "object", properties: {} },
         skipPermission: true,
         handler: async () => {
-            const s = await auth.status();
-            const lines = [];
-            if (s.signedIn) lines.push(`Signed in to Microsoft Teams as ${formatAccount(s.account)}.`);
-            else if (s.pending) lines.push(`Sign-in in progress. ${describePending(s.pending)}`);
-            else lines.push("Not signed in. Call teams_chat_sign_in.");
             const saved = await webhooks.list();
-            lines.push(
+            const lines = [
                 saved.length
-                    ? `Teams workflow webhooks (no sign-in needed): ${saved.map((w) => w.name).join(", ")}.`
-                    : "No Teams workflow webhooks saved. If sign-in needs admin approval, the user can set one up instead (see teams_chat_add_webhook).",
-            );
-            if (s.lastError) lines.push(`Last sign-in error: ${s.lastError}`);
-            lines.push(`Client ID: ${s.clientId}; tenant: ${s.tenantId}; confirm before send: ${config.confirmBeforeSend ? "on" : "off"}.`);
-            if (config.confirmBeforeSend && !session.capabilities?.ui?.elicitation) {
+                    ? `Saved Teams workflows: ${saved.map((w) => w.name).join(", ")}.`
+                    : `No Teams workflows saved yet. ${SETUP_HELP} Then add it with teams_chat_add_webhook.`,
+                `Confirm before send: ${config.confirmBeforeSend ? "on" : "off"}.`,
+            ];
+            if (config.confirmBeforeSend && !canConfirm()) {
                 lines.push(`This client can't show confirmation prompts, so teams_chat_send_message won't send. Use the "${COMPOSE_CANVAS_ID}" canvas.`);
             }
             return lines.join("\n");
         },
     };
 
-    const signOut = {
-        name: "teams_chat_sign_out",
-        description: "Sign out of Microsoft Teams and delete the saved sign-in from this computer.",
-        parameters: { type: "object", properties: {} },
-        handler: async () => {
-            await auth.signOut();
-            return "Signed out of Microsoft Teams. The saved sign-in was deleted.";
-        },
-    };
-
-    const listChats = {
-        name: "teams_chat_list_chats",
-        description:
-            "List the user's recent Microsoft Teams chats (1:1, group, and meeting chats) with their chat IDs. " +
-            "Use query to filter by chat name or member name/email. Use the returned chatId with teams_chat_send_message.",
-        parameters: {
-            type: "object",
-            properties: {
-                query: { type: "string", description: "Optional words to match against chat names and member names or emails." },
-                limit: { type: "integer", minimum: 1, maximum: 50, description: "Maximum chats to return. Default 20." },
-            },
-        },
-        skipPermission: true,
-        handler: async (args = {}) => {
-            try {
-                const account = await requireAccount(auth, SIGN_IN_WAIT_MS);
-                const limit = Math.min(Math.max(Number(args.limit) || 20, 1), 50);
-                let chats = await graph.listChats({ maxPages: args.query ? 3 : 1, myUserId: account.id });
-                if (args.query) chats = chats.filter((c) => matchesQuery(c, args.query));
-                chats = chats.slice(0, limit);
-                if (!chats.length) {
-                    return args.query ? `No recent chats match "${args.query}".` : "No recent chats found.";
-                }
-                const lines = chats.map(
-                    (c, i) => `${i + 1}. ${c.label} (${CHAT_TYPE[c.chatType] || c.chatType}, ${formatDate(c.lastActivity)}) chatId: ${c.id}`,
-                );
-                return `${lines.join("\n")}\n\nThe user's own Notes to self chat has chatId ${SELF_CHAT_ID}.`;
-            } catch (err) {
-                return failure(describeError(err));
-            }
-        },
-    };
-
-    const people = {
-        name: "teams_chat_find_people",
-        description: "Look up people in the user's organization by name or email, to pick the right Teams recipient.",
-        parameters: {
-            type: "object",
-            properties: { query: { type: "string", description: "Name, partial name, or email address." } },
-            required: ["query"],
-        },
-        skipPermission: true,
-        handler: async (args = {}) => {
-            try {
-                await requireAccount(auth, SIGN_IN_WAIT_MS);
-                const found = await findPeople(graph, args.query || "");
-                if (!found.length) return `No one in the organization matches "${args.query}".`;
-                return found.map((p) => `- ${formatPerson(p)}${p.jobTitle ? ` (${p.jobTitle})` : ""}`).join("\n");
-            } catch (err) {
-                return failure(describeError(err));
-            }
-        },
-    };
-
     const send = {
         name: "teams_chat_send_message",
         description:
-            "Send a Microsoft Teams chat message. Give one target: chatId (from teams_chat_list_chats), to " +
-            '(email addresses or full names; "me" sends to the user\'s Notes to self chat), or webhook (a saved Teams workflow name). ' +
-            "chatId and to send as the signed-in user: one recipient uses the 1:1 chat; several reuse a matching group chat or create one. " +
-            "webhook needs no sign-in and posts as the Workflows bot to wherever that workflow was set up. " +
+            "Post a message to Microsoft Teams through a saved Teams workflow webhook. The message appears in the chat or channel " +
+            "that workflow was set up for, from the Workflows bot. If only one workflow is saved, webhook can be omitted. " +
             "The user is asked to confirm each message before it is sent. " +
             "Write the message in the user's voice; do not add a signature saying it came from Copilot unless asked.",
         parameters: {
             type: "object",
             properties: {
-                message: { type: "string", description: "Message body. Markdown is converted to Teams formatting unless format is text." },
-                to: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: 'Recipients: email addresses (preferred) or full names. Use ["me"] for Notes to self.',
-                },
-                chatId: { type: "string", description: "Existing chat ID. Takes precedence over to." },
-                webhook: { type: "string", description: "Name of a saved Teams workflow webhook. Takes precedence over chatId and to." },
+                message: { type: "string", description: "Message body. Markdown (bold, italics, links, lists, headings, code blocks) unless format is text." },
+                webhook: { type: "string", description: "Name of the saved Teams workflow to post to." },
                 format: { type: "string", enum: ["markdown", "text"], description: "How to interpret message. Default markdown." },
-                topic: { type: "string", description: "Name for a new group chat, if one has to be created." },
             },
             required: ["message"],
         },
@@ -172,32 +73,20 @@ export function createTools({ service, session }) {
         skipPermission: true,
         handler: async (args = {}) => {
             try {
-                const { plan, payload, account } = await prepareSend({
-                    service,
-                    target: { webhook: args.webhook, chatId: args.chatId, to: args.to, topic: args.topic },
-                    message: args.message,
-                    format: args.format,
-                    waitForSignInMs: SIGN_IN_WAIT_MS,
-                });
-
+                const { plan, payload } = await prepareSend({ service, webhook: args.webhook, message: args.message, format: args.format });
                 if (config.confirmBeforeSend) {
-                    if (!session.capabilities?.ui?.elicitation) return noConfirmUi("The message was not sent");
-                    const approved = await session.ui.confirm(confirmationText(plan, args.message));
-                    if (!approved) {
-                        return { textResultForLlm: "The user declined. The message was not sent.", resultType: "rejected" };
+                    if (!canConfirm()) {
+                        return failure(
+                            `The message was not sent: this client can't show a confirmation prompt. Open the "${COMPOSE_CANVAS_ID}" canvas so the user can review and send it.`,
+                        );
                     }
+                    const answer = await confirmWithUser(confirmationText(plan, args.message));
+                    if (answer === "declined") return { textResultForLlm: "The user declined. The message was not sent.", resultType: "rejected" };
+                    if (answer === "expired") return expiredResult("The message was not sent.");
                 }
-
-                const result = await deliver({ service, plan, payload, account });
-                await session.log?.(`Sent a Teams message to ${plan.label}.`);
-                return [
-                    `Sent to ${plan.label}.`,
-                    result.chatId ? `chatId: ${result.chatId}` : null,
-                    result.messageId ? `messageId: ${result.messageId}` : null,
-                    result.webUrl ? `Open in Teams: ${result.webUrl}` : null,
-                ]
-                    .filter(Boolean)
-                    .join("\n");
+                const result = await deliver({ service, plan, payload });
+                await session.log?.(`Sent a Teams message to ${result.label}.`);
+                return `Sent to ${result.label}. It appears from the Workflows bot.`;
             } catch (err) {
                 return failure(`The message was not sent. ${describeError(err)}`);
             }
@@ -207,9 +96,8 @@ export function createTools({ service, session }) {
     const addWebhook = {
         name: "teams_chat_add_webhook",
         description:
-            "Save a Teams workflow webhook URL under a name so messages can be sent without signing in (for example when sign-in needs admin approval). " +
-            'The user creates it in Teams: open the chat or channel, choose "Workflows", pick the template "Send webhook alerts to a chat" ' +
-            '(or "to a channel"), finish the steps, and copy the URL. Only use a URL the user gave you directly. Messages post as the Workflows bot.',
+            `Save a Teams workflow webhook URL under a name so messages can be posted to it. ${SETUP_HELP} ` +
+            "Only use a URL the user gave you directly. The user is asked to confirm before it is saved.",
         parameters: {
             type: "object",
             properties: {
@@ -221,15 +109,21 @@ export function createTools({ service, session }) {
         },
         handler: async (args = {}) => {
             try {
-                const host = new URL(String(args.url)).hostname;
+                let host;
+                try {
+                    host = new URL(String(args.url)).hostname;
+                } catch {
+                    return failure("The webhook was not saved. That is not a valid URL.");
+                }
                 // Adding a destination is as sensitive as sending: confirm it with the user directly.
-                if (!session.capabilities?.ui?.elicitation) {
+                if (!canConfirm()) {
                     return failure(`The webhook was not saved: this client can't show a confirmation prompt. Add it to ${webhooks.file} by hand.`);
                 }
-                const approved = await session.ui.confirm(
-                    `Save the Teams workflow webhook "${args.name}" (${host})? Messages sent to it will be posted to wherever that workflow posts.`,
+                const answer = await confirmWithUser(
+                    `Save the Teams workflow webhook "${args.name}" (${host})? Messages sent to it will be posted wherever that workflow posts.`,
                 );
-                if (!approved) return { textResultForLlm: "The user declined. The webhook was not saved.", resultType: "rejected" };
+                if (answer === "declined") return { textResultForLlm: "The user declined. The webhook was not saved.", resultType: "rejected" };
+                if (answer === "expired") return expiredResult("The webhook was not saved.");
                 const saved = await webhooks.add(args.name, args.url, args.description);
                 return `${saved.replaced ? "Replaced" : "Saved"} the Teams workflow webhook "${saved.name}". Send to it with teams_chat_send_message and webhook: "${saved.name}".`;
             } catch (err) {
@@ -262,5 +156,5 @@ export function createTools({ service, session }) {
             (await webhooks.remove(args.name)) ? `Removed the Teams workflow webhook "${args.name}".` : failure(`No webhook named "${args.name}".`),
     };
 
-    return [signIn, status, signOut, listChats, people, send, addWebhook, listWebhooks, removeWebhook];
+    return [status, send, addWebhook, listWebhooks, removeWebhook];
 }

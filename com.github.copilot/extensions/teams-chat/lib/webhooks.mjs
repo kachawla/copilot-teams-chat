@@ -58,6 +58,17 @@ export class WebhookStore {
         this.dir = dir;
         this.file = path.join(dir, "webhooks.json");
         this.extraHostSuffixes = extraHostSuffixes;
+        this.listeners = new Set();
+    }
+
+    /** Calls fn after a webhook is added or removed. Returns an unsubscribe function. */
+    onChange(fn) {
+        this.listeners.add(fn);
+        return () => this.listeners.delete(fn);
+    }
+
+    #changed() {
+        for (const fn of this.listeners) Promise.resolve().then(fn).catch(() => {});
     }
 
     async #readAll() {
@@ -103,6 +114,7 @@ export class WebhookStore {
             addedAt: new Date().toISOString(),
         };
         await this.#writeAll(all);
+        this.#changed();
         return { name: cleanName, replaced: Boolean(existing) };
     }
 
@@ -112,6 +124,7 @@ export class WebhookStore {
         if (!key) return false;
         delete all[key];
         await this.#writeAll(all);
+        this.#changed();
         return true;
     }
 }

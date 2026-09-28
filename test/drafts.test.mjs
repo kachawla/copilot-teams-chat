@@ -18,10 +18,11 @@ test("drafts dir prefers the session workspace path when known", () => {
     assert.equal(resolve("abc"), path.join("/ws", "files", "teams-chat-drafts"));
 });
 
-test("choosing a chat clears recipients, and format is normalized", () => {
-    const draft = applyDraftPatch(emptyDraft("d"), { to: "a@x.com", format: "html" });
+test("draft patches normalize values", () => {
+    const draft = applyDraftPatch(emptyDraft("d"), { webhook: "team chat", message: null, format: "html", ignored: "x" });
+    assert.equal(draft.webhook, "team chat");
+    assert.equal(draft.message, "");
     assert.equal(draft.format, "markdown");
-    const withChat = applyDraftPatch(draft, { chatId: "19:x", chatLabel: "X" });
-    assert.deepEqual(withChat.to, []);
-    assert.equal(applyDraftPatch(withChat, { message: null }).message, "");
+    assert.equal(draft.ignored, undefined);
+    assert.equal(applyDraftPatch(draft, { webhook: "" }).webhook, null);
 });

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Send Microsoft Teams chat messages from GitHub Copilot chats.",
+  "description": "Send Microsoft Teams messages from GitHub Copilot chats through Teams workflow webhooks.",
   "main": "com.github.copilot/extensions/teams-chat/extension.mjs",
   "engines": {
     "node": ">=22"

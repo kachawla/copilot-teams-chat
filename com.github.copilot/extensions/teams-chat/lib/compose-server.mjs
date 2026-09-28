@@ -10,7 +10,6 @@ const STATIC_FILES = {
     "/app.js": { file: path.join(here, "..", "ui", "app.js"), type: "text/javascript; charset=utf-8" },
     "/style.css": { file: path.join(here, "..", "ui", "style.css"), type: "text/css; charset=utf-8" },
     "/markdown.mjs": { file: path.join(here, "markdown.mjs"), type: "text/javascript; charset=utf-8" },
-    "/recipients.mjs": { file: path.join(here, "recipients.mjs"), type: "text/javascript; charset=utf-8" },
 };
 const MAX_BODY_BYTES = 256 * 1024;
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'";
@@ -47,7 +46,7 @@ function sendJson(res, status, value) {
  * per-panel token (header, or query for EventSource) and a loopback Host
  * header, which blocks cross-site requests and DNS rebinding.
  */
-export async function startComposeServer({ getState, onDraft, onSend, onSignIn, onSignOut }) {
+export async function startComposeServer({ getState, onDraft, onSend }) {
     const token = randomBytes(24).toString("base64url");
     const clients = new Set();
     let port = 0;
@@ -110,15 +109,6 @@ export async function startComposeServer({ getState, onDraft, onSend, onSignIn, 
             }
             if (req.method === "POST" && url.pathname === "/api/send") {
                 sendJson(res, 200, await onSend(await readJson(req)));
-                return;
-            }
-            if (req.method === "POST" && url.pathname === "/api/sign-in") {
-                const body = await readJson(req);
-                sendJson(res, 200, await onSignIn(body.method === "device_code" ? "device_code" : "browser"));
-                return;
-            }
-            if (req.method === "POST" && url.pathname === "/api/sign-out") {
-                sendJson(res, 200, await onSignOut());
                 return;
             }
             sendJson(res, 404, { error: "Not found" });
