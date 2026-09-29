@@ -6,7 +6,13 @@ import { describeError } from "./service.mjs";
 import { COMPOSE_CANVAS_ID } from "./tools.mjs";
 
 const draftProperties = {
-    webhook: { type: "string", description: "Name of the saved Teams workflow to post to." },
+    webhook: { type: "string", description: "Name of the saved Teams workflow to use." },
+    to: {
+        type: "array",
+        items: { type: "string" },
+        description: "People to send to (email addresses or saved contact names). Needs a send-to-anyone workflow.",
+    },
+    topic: { type: "string", description: "Name for a new group chat when sending to several people." },
     message: { type: "string", description: "Draft message (Markdown unless format is text)." },
     format: { type: "string", enum: ["markdown", "text"] },
 };
@@ -31,6 +37,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     const stateFor = async (draftId) => ({
         draft: await drafts.get(draftId),
         webhooks: await service.webhooks.list(),
+        contacts: (await service.contacts.list()).map((c) => c.name),
     });
 
     const updateDraft = async (draftId, patch, extra = {}) => {
@@ -43,7 +50,14 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     const handleSend = async (draftId, { confirm, fingerprint }) => {
         const draft = await drafts.get(draftId);
         try {
-            const { plan, payload } = await prepareSend({ service, webhook: draft.webhook, message: draft.message, format: draft.format });
+            const { plan, payload } = await prepareSend({
+                service,
+                webhook: draft.webhook,
+                to: draft.to,
+                topic: draft.topic,
+                message: draft.message,
+                format: draft.format,
+            });
             // The user confirms a specific destination and message. If either
             // changed since (for example the agent updated the draft), ask again.
             const current = planFingerprint(plan, payload);
@@ -84,7 +98,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
         actions: [
             {
                 name: "update_draft",
-                description: "Replace fields of the draft shown in this panel (webhook, message, format).",
+                description: "Replace fields of the draft shown in this panel (webhook, to, topic, message, format).",
                 inputSchema: { type: "object", properties: draftProperties },
                 handler: async (ctx) => {
                     sessionId ??= ctx.sessionId;

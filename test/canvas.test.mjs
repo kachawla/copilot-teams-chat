@@ -140,7 +140,7 @@ test("send errors are reported to the page", async (t) => {
     const { api } = await openCanvas(t, { input: { message: "hi" }, webhooks: [["a", URL_A], ["b", URL_B]] });
     const res = await api("/api/send", { confirm: false });
     assert.equal(res.status, 500);
-    assert.match(res.json.error, /Several Teams workflows are saved/);
+    assert.match(res.json.error, /Several fixed-chat Teams workflows are saved/);
 });
 
 test("agent actions update and read the same draft; edits and new webhooks push over SSE", async (t) => {
@@ -177,6 +177,24 @@ test("replaying the same open input does not overwrite later edits", async (t) =
     assert.equal((await api("/api/state")).json.draft.message, "edited by the user");
     await canvas.open({ instanceId: "panel-1", input: { message: "new request" } });
     assert.equal((await api("/api/state")).json.draft.message, "new request");
+});
+
+test("the canvas sends to people through a send-to-anyone workflow", async (t) => {
+    const { api, service, webhook } = await openCanvas(t, { input: { to: ["Alice"], message: "hello" } });
+    await service.webhooks.add("direct", "https://prod-3.westus.logic.azure.com/workflows/d?sig=d", null, "direct");
+    await service.contacts.save("Alice", "alice@contoso.com");
+    const state = (await api("/api/state")).json;
+    assert.deepEqual(state.contacts, ["Alice"]);
+    assert.deepEqual(state.webhooks.map((w) => [w.name, w.kind]), [["direct", "direct"], ["Team chat", "chat"]]);
+
+    const first = await api("/api/send", { confirm: false });
+    assert.equal(first.json.label, "Alice <alice@contoso.com> (1:1 chat, as you)");
+    await service.contacts.save("Alice", "alice2@contoso.com");
+    const changed = await api("/api/send", { confirm: true, fingerprint: first.json.fingerprint });
+    assert.equal(changed.json.needsConfirm, true, "a contact that now points elsewhere needs a new confirmation");
+    const sent = await api("/api/send", { confirm: true, fingerprint: changed.json.fingerprint });
+    assert.equal(sent.json.sent, true);
+    assert.equal(webhook.calls[0].body.to, "alice2@contoso.com");
 });
 
 test("invalid draft IDs are rejected on open", async (t) => {

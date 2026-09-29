@@ -6,6 +6,12 @@ const els = {
     setup: $("setup"),
     form: $("compose"),
     via: $("via"),
+    viaNote: $("via-note"),
+    toField: $("to-field"),
+    to: $("to"),
+    contacts: $("contacts"),
+    topicField: $("topic-field"),
+    topic: $("topic"),
     format: $("format"),
     message: $("message"),
     preview: $("preview"),
@@ -62,6 +68,26 @@ function selectedWebhook() {
     return els.via.value || null;
 }
 
+function selectedKind() {
+    const name = (els.via.value || "").toLowerCase();
+    return (state?.webhooks || []).find((w) => w.name.toLowerCase() === name)?.kind ?? null;
+}
+
+function recipientCount() {
+    return els.to.value.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).length;
+}
+
+function renderTarget() {
+    const direct = selectedKind() === "direct";
+    els.viaNote.textContent = direct
+        ? "Sends as you. One person gets it in your 1:1 chat with them; several people get a new group chat."
+        : selectedKind() === "chat"
+          ? "Posts from the Workflows bot to the chat or channel this workflow was set up for."
+          : "";
+    show(els.toField, direct);
+    show(els.topicField, direct && recipientCount() > 1);
+}
+
 function render(next) {
     // Any change to the draft (including from the agent) invalidates a pending confirmation.
     if (state && next.draft.updatedAt !== state.draft.updatedAt) hideConfirm();
@@ -70,7 +96,10 @@ function render(next) {
     const webhooks = state.webhooks || [];
 
     show(els.setup, webhooks.length === 0);
-    const options = webhooks.map((w) => [w.name, `${w.name}${w.description ? ` (${w.description})` : ""}`]);
+    const options = webhooks.map((w) => [
+        w.name,
+        `${w.name}: ${w.kind === "direct" ? "send to anyone, as you" : "fixed chat"}${w.description ? ` (${w.description})` : ""}`,
+    ]);
     if (draft.webhook && !webhooks.some((w) => w.name.toLowerCase() === draft.webhook.toLowerCase())) {
         options.push([draft.webhook, `${draft.webhook} (not found)`]);
     }
@@ -82,8 +111,15 @@ function render(next) {
     }
     if (document.activeElement !== els.via) {
         const match = webhooks.find((w) => w.name.toLowerCase() === (draft.webhook || "").toLowerCase());
-        els.via.value = match ? match.name : draft.webhook || (webhooks.length === 1 ? webhooks[0].name : "");
+        // Recipients imply the send-to-anyone workflow when there is exactly one.
+        const direct = webhooks.filter((w) => w.kind === "direct");
+        const implied = draft.to?.length && direct.length === 1 ? direct[0].name : webhooks.length === 1 ? webhooks[0].name : "";
+        els.via.value = match ? match.name : draft.webhook || implied;
     }
+    els.contacts.replaceChildren(...(state.contacts || []).map((name) => Object.assign(document.createElement("option"), { value: name })));
+    syncField(els.to, (draft.to || []).join("; "));
+    syncField(els.topic, draft.topic || "");
+    renderTarget();
     els.via.disabled = options.length === 0;
 
     syncField(els.message, draft.message || "");
@@ -101,7 +137,8 @@ function render(next) {
 }
 
 function updateSendButton() {
-    els.send.disabled = busy || !els.message.value.trim() || !selectedWebhook();
+    const needsPeople = selectedKind() === "direct";
+    els.send.disabled = busy || !els.message.value.trim() || !selectedWebhook() || (needsPeople && recipientCount() === 0);
 }
 
 function queueSave(patch) {
@@ -143,13 +180,21 @@ async function run(label, fn) {
 
 els.message.addEventListener("input", () => queueSave({ message: els.message.value }));
 els.format.addEventListener("change", () => queueSave({ format: els.format.value }));
-els.via.addEventListener("change", () => queueSave({ webhook: selectedWebhook() }));
+els.via.addEventListener("change", () => {
+    renderTarget();
+    queueSave({ webhook: selectedWebhook(), to: selectedKind() === "direct" ? els.to.value : [] });
+});
+els.to.addEventListener("input", () => {
+    renderTarget();
+    queueSave({ to: els.to.value });
+});
+els.topic.addEventListener("input", () => queueSave({ topic: els.topic.value }));
 
 els.form.addEventListener("submit", (event) => {
     event.preventDefault();
     run("Checking…", async () => {
         // Save the shown workflow too, so a single saved workflow is used even if never picked.
-        queueSave({ webhook: selectedWebhook() });
+        queueSave({ webhook: selectedWebhook(), ...(selectedKind() === "direct" ? {} : { to: [] }) });
         await flushSave();
         const res = await api("/api/send", { confirm: false });
         els.confirmText.textContent = `Send this message to ${res.label}?`;

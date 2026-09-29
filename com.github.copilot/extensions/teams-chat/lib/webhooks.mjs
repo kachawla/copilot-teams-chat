@@ -13,6 +13,12 @@ const DEFAULT_HOST_SUFFIXES = [
     ".webhook.office.com",
 ];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$/;
+
+// "chat": the "Send webhook alerts to a chat/channel" template; posts an Adaptive
+// Card to one fixed place as the Workflows bot.
+// "direct": a workflow the user builds that creates a chat with the given
+// people and posts as the user (see README, "Send to anyone").
+export const WEBHOOK_KINDS = ["chat", "direct"];
 export const MAX_WEBHOOK_PAYLOAD_BYTES = 28_000;
 
 export class WebhookError extends Error {
@@ -92,17 +98,18 @@ export class WebhookStore {
     async list() {
         const all = await this.#readAll();
         return Object.entries(all)
-            .map(([name, w]) => ({ name, description: w.description ?? null, addedAt: w.addedAt ?? null }))
+            .map(([name, w]) => ({ name, kind: w.kind === "direct" ? "direct" : "chat", description: w.description ?? null, addedAt: w.addedAt ?? null }))
             .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     async get(name) {
         const all = await this.#readAll();
         const key = Object.keys(all).find((k) => k.toLowerCase() === String(name).trim().toLowerCase());
-        return key ? { name: key, ...all[key] } : null;
+        return key ? { name: key, ...all[key], kind: all[key].kind === "direct" ? "direct" : "chat" } : null;
     }
 
-    async add(name, url, description) {
+    async add(name, url, description, kind = "chat") {
+        if (!WEBHOOK_KINDS.includes(kind)) throw new WebhookError(`Unknown webhook kind "${kind}". Use "chat" or "direct".`, "invalid_kind");
         const cleanName = validateWebhookName(name);
         const cleanUrl = validateWebhookUrl(url, this.extraHostSuffixes);
         const all = await this.#readAll();
@@ -110,6 +117,7 @@ export class WebhookStore {
         if (existing) delete all[existing];
         all[cleanName] = {
             url: cleanUrl,
+            kind,
             description: description ? String(description).slice(0, 200) : null,
             addedAt: new Date().toISOString(),
         };

@@ -19,18 +19,21 @@ test("tool names are namespaced and only read-only tools and send skip the permi
         "teams_chat_add_webhook",
         "teams_chat_list_webhooks",
         "teams_chat_remove_webhook",
+        "teams_chat_save_contact",
+        "teams_chat_list_contacts",
+        "teams_chat_remove_contact",
     ]);
     const skip = tools.filter((tool) => tool.skipPermission).map((tool) => tool.name).sort();
-    assert.deepEqual(skip, ["teams_chat_list_webhooks", "teams_chat_send_message", "teams_chat_status"]);
+    assert.deepEqual(skip, ["teams_chat_list_contacts", "teams_chat_list_webhooks", "teams_chat_send_message", "teams_chat_status"]);
 });
 
 test("status explains setup when nothing is saved", async (t) => {
     const { service, cleanup } = await setup();
     t.after(cleanup);
     const tools = toolsFor(service, fakeSession());
-    assert.match(await tools.teams_chat_status.handler({}), /No Teams workflows saved yet\. In Teams, open Apps > Workflows/);
+    assert.match(await tools.teams_chat_status.handler({}), /No Teams workflows saved yet\. For one fixed chat or channel: in Teams, open Apps > Workflows.*"Send to anyone"/);
     await service.webhooks.add("team chat", URL_A);
-    assert.match(await tools.teams_chat_status.handler({}), /Saved Teams workflows: team chat\./);
+    assert.match(await tools.teams_chat_status.handler({}), /Saved Teams workflows: team chat \(one fixed chat, as the Workflows bot\)\./);
     assert.match(await toolsFor(service, fakeSession({ elicitation: false })).teams_chat_status.handler({}), /can't show confirmation prompts/);
 });
 
@@ -43,7 +46,7 @@ test("adding a webhook asks the user, stores it privately, and never shows the U
     assert.match(added, /Saved the Teams workflow webhook "Team chat"/);
     assert.match(session.prompts[0], /Save the Teams workflow webhook "Team chat" \(prod-12\.westus\.logic\.azure\.com\)/);
     const listed = await tools.teams_chat_list_webhooks.handler({});
-    assert.equal(listed, "- Team chat: our team");
+    assert.equal(listed, "- Team chat (fixed chat): our team");
     assert.doesNotMatch(listed + (await tools.teams_chat_status.handler({})), /sig=secret/);
     const file = path.join(dir, "webhooks.json");
     if (process.platform !== "win32") assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
@@ -78,7 +81,7 @@ test("send confirms, then posts an adaptive card", async (t) => {
     const session = fakeSession();
     const result = await toolsFor(service, session).teams_chat_send_message.handler({ webhook: "team chat", message: "Build is **green**" });
     assert.equal(result, 'Sent to the "Team chat" Teams workflow. It appears from the Workflows bot.');
-    assert.match(session.prompts[0], /^Send this message to the "Team chat" Teams workflow in Microsoft Teams\?\n\nBuild is \*\*green\*\*$/);
+    assert.match(session.prompts[0], /^Send this Microsoft Teams message to the "Team chat" Teams workflow\?\n\nBuild is \*\*green\*\*$/);
     assert.equal(webhook.calls.length, 1);
     assert.equal(webhook.calls[0].url, URL_A);
     assert.equal(webhook.calls[0].init.redirect, "error");
@@ -95,7 +98,7 @@ test("send picks the only saved workflow, and asks which one when there are seve
     assert.match(await tools.teams_chat_send_message.handler({ message: "x" }), /^Sent to the "one" Teams workflow/);
     await service.webhooks.add("two", URL_B);
     const ambiguous = await tools.teams_chat_send_message.handler({ message: "x" });
-    assert.match(ambiguous.textResultForLlm, /Several Teams workflows are saved \(one, two\)/);
+    assert.match(ambiguous.textResultForLlm, /Several fixed-chat Teams workflows are saved \(one, two\)/);
     assert.match((await tools.teams_chat_send_message.handler({ webhook: "nope", message: "x" })).textResultForLlm, /No Teams workflow named "nope"/);
     assert.equal(webhook.calls.length, 1);
 });

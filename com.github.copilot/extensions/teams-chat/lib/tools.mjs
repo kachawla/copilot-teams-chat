@@ -9,15 +9,16 @@ export const COMPOSE_CANVAS_ID = "teams-chat-compose";
 export const CONFIRM_WINDOW_MS = 10 * 60_000;
 
 const SETUP_HELP =
-    'In Teams, open Apps > Workflows (or https://make.powerautomate.com > Templates), choose "Send webhook alerts to a chat" ' +
-    '(or "to a channel"), pick where to post, and copy the webhook URL it shows.';
+    'For one fixed chat or channel: in Teams, open Apps > Workflows (or https://make.powerautomate.com > Templates), choose ' +
+    '"Send webhook alerts to a chat" (or "to a channel"), pick where to post, and copy the webhook URL it shows (kind "chat"). ' +
+    'To send to any person by email as the user: build the workflow described under "Send to anyone" in the extension README (kind "direct").';
 
 /**
  * Tool definitions. `session` supplies `capabilities`, `ui.confirm`, and `log`;
  * tests pass a fake.
  */
 export function createTools({ service, session, now = Date.now, confirmWindowMs = CONFIRM_WINDOW_MS }) {
-    const { config, webhooks } = service;
+    const { config, webhooks, contacts } = service;
     const canConfirm = () => Boolean(session.capabilities?.ui?.elicitation);
 
     /** Resolves "approved", "declined", or "expired". */
@@ -39,10 +40,12 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
         skipPermission: true,
         handler: async () => {
             const saved = await webhooks.list();
+            const direct = saved.filter((w) => w.kind === "direct");
             const lines = [
                 saved.length
-                    ? `Saved Teams workflows: ${saved.map((w) => w.name).join(", ")}.`
+                    ? `Saved Teams workflows: ${saved.map((w) => `${w.name} (${w.kind === "direct" ? "send to anyone, as the user" : "one fixed chat, as the Workflows bot"})`).join(", ")}.`
                     : `No Teams workflows saved yet. ${SETUP_HELP} Then add it with teams_chat_add_webhook.`,
+                direct.length ? `Saved contacts: ${(await contacts.list()).length}.` : "No send-to-anyone workflow, so messages can't be sent to specific people yet.",
                 `Confirm before send: ${config.confirmBeforeSend ? "on" : "off"}.`,
             ];
             if (config.confirmBeforeSend && !canConfirm()) {
@@ -55,15 +58,23 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
     const send = {
         name: "teams_chat_send_message",
         description:
-            "Post a message to Microsoft Teams through a saved Teams workflow webhook. The message appears in the chat or channel " +
-            "that workflow was set up for, from the Workflows bot. If only one workflow is saved, webhook can be omitted. " +
-            "The user is asked to confirm each message before it is sent. " +
+            "Send a Microsoft Teams message through a saved Teams workflow. " +
+            "With to (email addresses or saved contact names), it goes through a send-to-anyone workflow as the user: one person gets it in " +
+            "their 1:1 chat with the user; several people get a new group chat. Never guess an email address from a name: use an address the " +
+            "user gave, a saved contact, or ask. Without to, it posts to a fixed-chat workflow's chat or channel as the Workflows bot. " +
+            "If only one workflow of the needed kind is saved, webhook can be omitted. The user is asked to confirm each message before it is sent. " +
             "Write the message in the user's voice; do not add a signature saying it came from Copilot unless asked.",
         parameters: {
             type: "object",
             properties: {
                 message: { type: "string", description: "Message body. Markdown (bold, italics, links, lists, headings, code blocks) unless format is text." },
-                webhook: { type: "string", description: "Name of the saved Teams workflow to post to." },
+                to: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "People to send to: email addresses or saved contact names. Leave out to post to a fixed chat.",
+                },
+                topic: { type: "string", description: "Name for the new group chat when sending to several people." },
+                webhook: { type: "string", description: "Name of the saved Teams workflow to use." },
                 format: { type: "string", enum: ["markdown", "text"], description: "How to interpret message. Default markdown." },
             },
             required: ["message"],
@@ -73,7 +84,14 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
         skipPermission: true,
         handler: async (args = {}) => {
             try {
-                const { plan, payload } = await prepareSend({ service, webhook: args.webhook, message: args.message, format: args.format });
+                const { plan, payload } = await prepareSend({
+                    service,
+                    webhook: args.webhook,
+                    to: args.to,
+                    topic: args.topic,
+                    message: args.message,
+                    format: args.format,
+                });
                 if (config.confirmBeforeSend) {
                     if (!canConfirm()) {
                         return failure(
@@ -86,7 +104,9 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
                 }
                 const result = await deliver({ service, plan, payload });
                 await session.log?.(`Sent a Teams message to ${result.label}.`);
-                return `Sent to ${result.label}. It appears from the Workflows bot.`;
+                return result.kind === "direct"
+                    ? `Handed the message for ${result.label} to the "${plan.webhookName}" workflow. Teams accepted it; if it doesn't arrive, the workflow's run history in Power Automate shows why.`
+                    : `Sent to ${result.label}. It appears from the Workflows bot.`;
             } catch (err) {
                 return failure(`The message was not sent. ${describeError(err)}`);
             }
@@ -101,8 +121,15 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
         parameters: {
             type: "object",
             properties: {
-                name: { type: "string", description: 'Short name to refer to it, like "team chat" or "release channel".' },
+                name: { type: "string", description: 'Short name to refer to it, like "team chat", "release channel", or "direct".' },
                 url: { type: "string", description: "The webhook URL copied from the Teams workflow." },
+                kind: {
+                    type: "string",
+                    enum: ["chat", "direct"],
+                    description:
+                        'chat (default): made from the "Send webhook alerts" template, posts to one fixed chat or channel. ' +
+                        'direct: the send-to-anyone workflow from the README, which messages any person as the user.',
+                },
                 description: { type: "string", description: "Optional note about where it posts." },
             },
             required: ["name", "url"],
@@ -119,13 +146,18 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
                 if (!canConfirm()) {
                     return failure(`The webhook was not saved: this client can't show a confirmation prompt. Add it to ${webhooks.file} by hand.`);
                 }
+                const kind = args.kind === "direct" ? "direct" : "chat";
                 const answer = await confirmWithUser(
-                    `Save the Teams workflow webhook "${args.name}" (${host})? Messages sent to it will be posted wherever that workflow posts.`,
+                    kind === "direct"
+                        ? `Save the Teams workflow webhook "${args.name}" (${host}) as a send-to-anyone workflow? Copilot will be able to send Teams messages as you to people you name. You still confirm each message.`
+                        : `Save the Teams workflow webhook "${args.name}" (${host})? Messages sent to it will be posted wherever that workflow posts.`,
                 );
                 if (answer === "declined") return { textResultForLlm: "The user declined. The webhook was not saved.", resultType: "rejected" };
                 if (answer === "expired") return expiredResult("The webhook was not saved.");
-                const saved = await webhooks.add(args.name, args.url, args.description);
-                return `${saved.replaced ? "Replaced" : "Saved"} the Teams workflow webhook "${saved.name}". Send to it with teams_chat_send_message and webhook: "${saved.name}".`;
+                const saved = await webhooks.add(args.name, args.url, args.description, kind);
+                return kind === "direct"
+                    ? `${saved.replaced ? "Replaced" : "Saved"} the send-to-anyone workflow "${saved.name}". Send with teams_chat_send_message and to: [email addresses or contact names].`
+                    : `${saved.replaced ? "Replaced" : "Saved"} the Teams workflow webhook "${saved.name}". Send to it with teams_chat_send_message and webhook: "${saved.name}".`;
             } catch (err) {
                 return failure(`The webhook was not saved. ${describeError(err)}`);
             }
@@ -140,7 +172,9 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
         handler: async () => {
             const saved = await webhooks.list();
             if (!saved.length) return "No Teams workflow webhooks are saved. Use teams_chat_add_webhook to add one.";
-            return saved.map((w) => `- ${w.name}${w.description ? `: ${w.description}` : ""}`).join("\n");
+            return saved
+                .map((w) => `- ${w.name} (${w.kind === "direct" ? "send to anyone" : "fixed chat"})${w.description ? `: ${w.description}` : ""}`)
+                .join("\n");
         },
     };
 
@@ -156,5 +190,53 @@ export function createTools({ service, session, now = Date.now, confirmWindowMs 
             (await webhooks.remove(args.name)) ? `Removed the Teams workflow webhook "${args.name}".` : failure(`No webhook named "${args.name}".`),
     };
 
-    return [status, send, addWebhook, listWebhooks, removeWebhook];
+    const saveContact = {
+        name: "teams_chat_save_contact",
+        description:
+            "Remember a person's email address under a name, so the user can later say \"send to Alice\" in Teams messages. " +
+            "Only save an address the user gave or confirmed; never guess one from a name.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: 'Name to use, like "Alice" or "Alice Smith".' },
+                email: { type: "string", description: "Their work email address." },
+            },
+            required: ["name", "email"],
+        },
+        handler: async (args = {}) => {
+            try {
+                const saved = await contacts.save(args.name, args.email);
+                return saved.replaced
+                    ? `Updated ${saved.name}: ${saved.replaced.email} is now ${saved.email}.`
+                    : `Saved ${saved.name} <${saved.email}>.`;
+            } catch (err) {
+                return failure(`The contact was not saved. ${describeError(err)}`);
+            }
+        },
+    };
+
+    const listContacts = {
+        name: "teams_chat_list_contacts",
+        description: "List saved Teams contacts (names and email addresses).",
+        parameters: { type: "object", properties: {} },
+        skipPermission: true,
+        handler: async () => {
+            const saved = await contacts.list();
+            return saved.length ? saved.map((c) => `- ${c.name} <${c.email}>`).join("\n") : "No contacts saved.";
+        },
+    };
+
+    const removeContact = {
+        name: "teams_chat_remove_contact",
+        description: "Forget a saved Teams contact.",
+        parameters: {
+            type: "object",
+            properties: { name: { type: "string", description: "Name of the saved contact." } },
+            required: ["name"],
+        },
+        handler: async (args = {}) =>
+            (await contacts.remove(args.name)) ? `Removed the contact "${args.name}".` : failure(`No contact named "${args.name}".`),
+    };
+
+    return [status, send, addWebhook, listWebhooks, removeWebhook, saveContact, listContacts, removeContact];
 }
