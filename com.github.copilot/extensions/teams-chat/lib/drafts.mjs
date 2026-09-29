@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { copilotHome } from "./config.mjs";
-import { normalizeRecipients } from "./delivery.mjs";
+import { normalizeRecipients } from "./compose.mjs";
 
 const DRAFT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -12,7 +12,6 @@ export function validDraftId(id) {
 export function emptyDraft(draftId) {
     return {
         draftId,
-        webhook: null,
         to: [],
         topic: null,
         message: "",
@@ -25,7 +24,6 @@ export function emptyDraft(draftId) {
 
 export function applyDraftPatch(draft, patch = {}) {
     const next = { ...draft };
-    if (patch.webhook !== undefined) next.webhook = patch.webhook ? String(patch.webhook) : null;
     if (patch.to !== undefined) next.to = normalizeRecipients(patch.to);
     if (patch.topic !== undefined) next.topic = patch.topic ? String(patch.topic) : null;
     if (patch.message !== undefined) next.message = patch.message == null ? "" : String(patch.message);

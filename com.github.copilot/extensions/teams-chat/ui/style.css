@@ -74,11 +74,6 @@ select {
     padding: 3px 8px;
 }
 
-select.wide {
-    width: 100%;
-    padding: 7px 10px;
-}
-
 textarea {
     resize: vertical;
     min-height: 120px;
@@ -124,6 +119,10 @@ button.primary {
     overflow-wrap: anywhere;
 }
 
+.preview.plain {
+    white-space: pre-wrap;
+}
+
 .preview:empty::before {
     content: "Nothing to preview yet.";
     color: var(--text-color-muted, #59636e);
@@ -154,21 +153,6 @@ button.primary {
     padding-left: 10px;
     border-left: 3px solid var(--border-color-default, #d1d9e0);
     color: var(--text-color-muted, #59636e);
-}
-
-.panel {
-    margin-bottom: 14px;
-    padding: 12px 14px;
-    border: 1px solid var(--border-color-default, #d1d9e0);
-    border-radius: 8px;
-}
-
-.panel p {
-    margin: 0 0 10px;
-}
-
-.confirm {
-    border-color: #5b5fc7;
 }
 
 .actions {

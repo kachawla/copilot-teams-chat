@@ -1,26 +1,20 @@
 import { createHash } from "node:crypto";
+import { openPrepared, prepareChat } from "./compose.mjs";
 import { startComposeServer } from "./compose-server.mjs";
-import { deliver, planFingerprint, prepareSend } from "./delivery.mjs";
 import { DraftStore, applyDraftPatch, validDraftId } from "./drafts.mjs";
 import { describeError } from "./service.mjs";
 import { COMPOSE_CANVAS_ID } from "./tools.mjs";
 
 const draftProperties = {
-    webhook: { type: "string", description: "Name of the saved Teams workflow to use." },
-    to: {
-        type: "array",
-        items: { type: "string" },
-        description: "People to send to (email addresses or saved contact names). Needs a send-to-anyone workflow.",
-    },
-    topic: { type: "string", description: "Name for a new group chat when sending to several people." },
+    to: { type: "array", items: { type: "string" }, description: "People to message: email addresses or saved contact names." },
+    topic: { type: "string", description: "Name for a new group chat." },
     message: { type: "string", description: "Draft message (Markdown unless format is text)." },
     format: { type: "string", enum: ["markdown", "text"] },
 };
 
 /**
- * Compose canvas: the agent fills in a draft, the user edits it, previews the
- * formatting, and clicks Send. The agent cannot send from the canvas; only
- * the user's click does.
+ * Compose canvas: the agent fills in a draft, the user edits it, then clicks
+ * "Open in Teams" and presses Send there. Nothing is sent from the canvas.
  */
 export function createComposeCanvas({ createCanvas, CanvasError, service, session, draftsDir }) {
     let sessionId;
@@ -32,11 +26,9 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
             if (!draftId || entry.draftId === draftId) await entry.server.broadcast().catch(() => {});
         }
     };
-    service.webhooks.onChange(() => broadcastAll());
 
     const stateFor = async (draftId) => ({
         draft: await drafts.get(draftId),
-        webhooks: await service.webhooks.list(),
         contacts: (await service.contacts.list()).map((c) => c.name),
     });
 
@@ -47,37 +39,24 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
         return drafts.get(draftId);
     };
 
-    const handleSend = async (draftId, { confirm, fingerprint }) => {
+    const handleOpen = async (draftId) => {
         const draft = await drafts.get(draftId);
         try {
-            const { plan, payload } = await prepareSend({
-                service,
-                webhook: draft.webhook,
-                to: draft.to,
-                topic: draft.topic,
-                message: draft.message,
-                format: draft.format,
-            });
-            // The user confirms a specific destination and message. If either
-            // changed since (for example the agent updated the draft), ask again.
-            const current = planFingerprint(plan, payload);
-            if (!confirm || fingerprint !== current) return { needsConfirm: true, label: plan.label, fingerprint: current };
-            const result = await deliver({ service, plan, payload });
+            const prepared = await prepareChat({ service, to: draft.to, topic: draft.topic, message: draft.message, format: draft.format });
+            const openedIn = await openPrepared({ service, prepared });
             await drafts.save({
                 ...draft,
-                webhook: plan.webhookName,
-                message: "",
-                lastResult: {
-                    ok: true,
-                    label: result.label,
-                    sentAt: new Date().toISOString(),
-                    messagePreview: draft.message.slice(0, 200),
-                },
+                lastResult: { openedIn, label: prepared.label, link: prepared.webLink, at: new Date().toISOString() },
             });
             await broadcastAll(draftId);
-            await session.log?.(`Sent a Teams message to ${result.label} from the compose canvas.`);
-            return { sent: true, state: await stateFor(draftId) };
+            if (openedIn) await session.log?.(`Opened a Teams draft to ${prepared.label} from the compose canvas.`);
+            return { openedIn, label: prepared.label, link: prepared.webLink, state: await stateFor(draftId) };
         } catch (err) {
+            if (err.code === "unknown_recipient") {
+                throw new Error(
+                    `No email address is saved for ${err.names.map((n) => `"${n}"`).join(", ")}. Use their email address, or ask Copilot to save them as a contact.`,
+                );
+            }
             throw new Error(describeError(err));
         }
     };
@@ -87,7 +66,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
     return createCanvas({
         id: COMPOSE_CANVAS_ID,
         displayName: "Teams message",
-        description: "Draft, preview, and send a Microsoft Teams message through a saved workflow; the user reviews it and clicks Send.",
+        description: "Draft a Microsoft Teams message with the user, then open it in Teams where they press Send.",
         inputSchema: {
             type: "object",
             properties: {
@@ -98,7 +77,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
         actions: [
             {
                 name: "update_draft",
-                description: "Replace fields of the draft shown in this panel (webhook, to, topic, message, format).",
+                description: "Replace fields of the draft shown in this panel (to, topic, message, format).",
                 inputSchema: { type: "object", properties: draftProperties },
                 handler: async (ctx) => {
                     sessionId ??= ctx.sessionId;
@@ -107,7 +86,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
             },
             {
                 name: "get_draft",
-                description: "Read the current draft, including the user's edits and the result of the last send.",
+                description: "Read the current draft, including the user's edits.",
                 handler: async (ctx) => {
                     sessionId ??= ctx.sessionId;
                     return drafts.get(draftIdFor(ctx.instanceId));
@@ -139,7 +118,7 @@ export function createComposeCanvas({ createCanvas, CanvasError, service, sessio
                         await updateDraft(entry.draftId, p);
                         return stateFor(entry.draftId);
                     },
-                    onSend: (body) => handleSend(entry.draftId, body),
+                    onOpen: () => handleOpen(entry.draftId),
                 });
                 entry = { server, draftId };
                 instances.set(ctx.instanceId, entry);

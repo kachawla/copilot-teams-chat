@@ -1,12 +1,11 @@
 import { loadConfig } from "./config.mjs";
 import { ContactError, ContactStore } from "./contacts.mjs";
-import { WebhookError, WebhookStore } from "./webhooks.mjs";
+import { openWithOs } from "./opener.mjs";
+import { LinkError } from "./teams-link.mjs";
 
-export async function createService({ env = process.env, webhookFetch = globalThis.fetch } = {}) {
+export async function createService({ env = process.env, openUrl = openWithOs } = {}) {
     const config = await loadConfig({ env });
-    const webhooks = new WebhookStore(config.dataDir, { extraHostSuffixes: config.allowedWebhookHosts });
-    const contacts = new ContactStore(config.dataDir);
-    return { config, webhooks, contacts, webhookFetch };
+    return { config, contacts: new ContactStore(config.dataDir), openUrl };
 }
 
 export function failure(text) {
@@ -14,6 +13,6 @@ export function failure(text) {
 }
 
 export function describeError(err) {
-    if (err instanceof WebhookError || err instanceof ContactError) return err.message;
+    if (err instanceof ContactError || err instanceof LinkError) return err.message;
     return `Unexpected error: ${err?.message || err}`;
 }

@@ -19,10 +19,10 @@ test("drafts dir prefers the session workspace path when known", () => {
 });
 
 test("draft patches normalize values", () => {
-    const draft = applyDraftPatch(emptyDraft("d"), { webhook: "team chat", message: null, format: "html", ignored: "x" });
-    assert.equal(draft.webhook, "team chat");
+    const draft = applyDraftPatch(emptyDraft("d"), { to: "a@x.com, b@x.com", topic: "", message: null, format: "html", ignored: "x" });
+    assert.deepEqual(draft.to, ["a@x.com", "b@x.com"]);
+    assert.equal(draft.topic, null);
     assert.equal(draft.message, "");
     assert.equal(draft.format, "markdown");
     assert.equal(draft.ignored, undefined);
-    assert.equal(applyDraftPatch(draft, { webhook: "" }).webhook, null);
 });

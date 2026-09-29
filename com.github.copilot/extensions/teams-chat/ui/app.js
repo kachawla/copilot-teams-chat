@@ -1,13 +1,9 @@
-import { toTeamsHtml } from "./markdown.mjs";
+import { toTeamsText } from "./teams-link.mjs";
 
 const token = new URLSearchParams(location.search).get("token") || "";
 const $ = (id) => document.getElementById(id);
 const els = {
-    setup: $("setup"),
     form: $("compose"),
-    via: $("via"),
-    viaNote: $("via-note"),
-    toField: $("to-field"),
     to: $("to"),
     contacts: $("contacts"),
     topicField: $("topic-field"),
@@ -15,11 +11,7 @@ const els = {
     format: $("format"),
     message: $("message"),
     preview: $("preview"),
-    confirm: $("confirm"),
-    confirmText: $("confirm-text"),
-    confirmSend: $("confirm-send"),
-    confirmCancel: $("confirm-cancel"),
-    send: $("send"),
+    open: $("open"),
     status: $("status"),
     error: $("error"),
     result: $("result"),
@@ -50,104 +42,48 @@ function setText(el, text) {
     show(el, Boolean(text));
 }
 
-function hideConfirm() {
-    show(els.confirm, false);
-    delete els.confirm.dataset.fingerprint;
+function recipientCount() {
+    return els.to.value.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).length;
 }
 
 function renderPreview() {
-    const text = els.message.value;
-    els.preview.innerHTML = text.trim() ? toTeamsHtml(text, els.format.value) : "";
+    let text = "";
+    try {
+        text = els.message.value.trim() ? toTeamsText(els.message.value, els.format.value) : "";
+    } catch {
+        text = "";
+    }
+    els.preview.textContent = text;
 }
 
 function syncField(el, value) {
     if (document.activeElement !== el && el.value !== value) el.value = value;
 }
 
-function selectedWebhook() {
-    return els.via.value || null;
-}
-
-function selectedKind() {
-    const name = (els.via.value || "").toLowerCase();
-    return (state?.webhooks || []).find((w) => w.name.toLowerCase() === name)?.kind ?? null;
-}
-
-function recipientCount() {
-    return els.to.value.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).length;
-}
-
-function renderTarget() {
-    const direct = selectedKind() === "direct";
-    els.viaNote.textContent = direct
-        ? "Sends as you. One person gets it in your 1:1 chat with them; several people get a new group chat."
-        : selectedKind() === "chat"
-          ? "Posts from the Workflows bot to the chat or channel this workflow was set up for."
-          : "";
-    show(els.toField, direct);
-    show(els.topicField, direct && recipientCount() > 1);
-}
-
 function render(next) {
-    // Any change to the draft (including from the agent) invalidates a pending confirmation.
-    if (state && next.draft.updatedAt !== state.draft.updatedAt) hideConfirm();
     state = next;
     const { draft } = state;
-    const webhooks = state.webhooks || [];
-
-    show(els.setup, webhooks.length === 0);
-    const options = webhooks.map((w) => [
-        w.name,
-        `${w.name}: ${w.kind === "direct" ? "send to anyone, as you" : "fixed chat"}${w.description ? ` (${w.description})` : ""}`,
-    ]);
-    if (draft.webhook && !webhooks.some((w) => w.name.toLowerCase() === draft.webhook.toLowerCase())) {
-        options.push([draft.webhook, `${draft.webhook} (not found)`]);
-    }
-    if (webhooks.length > 1 && !draft.webhook) options.unshift(["", "Choose a workflow"]);
-    const optionsKey = JSON.stringify(options);
-    if (els.via.dataset.options !== optionsKey) {
-        els.via.dataset.options = optionsKey;
-        els.via.replaceChildren(...options.map(([value, label]) => Object.assign(document.createElement("option"), { value, textContent: label })));
-    }
-    if (document.activeElement !== els.via) {
-        const match = webhooks.find((w) => w.name.toLowerCase() === (draft.webhook || "").toLowerCase());
-        // Recipients imply the send-to-anyone workflow when there is exactly one.
-        const direct = webhooks.filter((w) => w.kind === "direct");
-        const implied = draft.to?.length && direct.length === 1 ? direct[0].name : webhooks.length === 1 ? webhooks[0].name : "";
-        els.via.value = match ? match.name : draft.webhook || implied;
-    }
     els.contacts.replaceChildren(...(state.contacts || []).map((name) => Object.assign(document.createElement("option"), { value: name })));
     syncField(els.to, (draft.to || []).join("; "));
     syncField(els.topic, draft.topic || "");
-    renderTarget();
-    els.via.disabled = options.length === 0;
-
     syncField(els.message, draft.message || "");
     if (document.activeElement !== els.format) els.format.value = draft.format || "markdown";
-
-    const last = draft.lastResult;
-    if (last?.ok) {
-        setText(els.result, `Sent to ${last.label} at ${new Date(last.sentAt).toLocaleTimeString()}.`);
-    } else {
-        show(els.result, false);
-    }
-
+    show(els.topicField, recipientCount() > 1);
     renderPreview();
-    updateSendButton();
+    updateButton();
 }
 
-function updateSendButton() {
-    const needsPeople = selectedKind() === "direct";
-    els.send.disabled = busy || !els.message.value.trim() || !selectedWebhook() || (needsPeople && recipientCount() === 0);
+function updateButton() {
+    els.open.disabled = busy || !els.message.value.trim() || recipientCount() === 0;
 }
 
 function queueSave(patch) {
     Object.assign(pendingPatch, patch);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, 400);
-    hideConfirm();
+    show(els.topicField, recipientCount() > 1);
     renderPreview();
-    updateSendButton();
+    updateButton();
 }
 
 async function flushSave() {
@@ -162,65 +98,37 @@ async function flushSave() {
     }
 }
 
-async function run(label, fn) {
+els.to.addEventListener("input", () => queueSave({ to: els.to.value }));
+els.topic.addEventListener("input", () => queueSave({ topic: els.topic.value }));
+els.message.addEventListener("input", () => queueSave({ message: els.message.value }));
+els.format.addEventListener("change", () => queueSave({ format: els.format.value }));
+
+els.form.addEventListener("submit", async (event) => {
+    event.preventDefault();
     busy = true;
-    updateSendButton();
+    updateButton();
     setText(els.error, "");
-    els.status.textContent = label;
+    show(els.result, false);
+    els.status.textContent = "Opening Teams…";
     try {
-        await fn();
+        await flushSave();
+        const res = await api("/api/open", {});
+        if (res.state) render(res.state);
+        els.result.replaceChildren(
+            res.openedIn
+                ? `Opened ${res.label} in Teams${res.openedIn === "web" ? " on the web" : ""}. Press Send there. `
+                : `Couldn't open Teams automatically. `,
+            Object.assign(document.createElement("a"), { href: res.link, target: "_blank", rel: "noopener", textContent: "Open link" }),
+        );
+        show(els.result, true);
     } catch (err) {
         setText(els.error, err.message);
     } finally {
         busy = false;
         els.status.textContent = "";
-        updateSendButton();
+        updateButton();
     }
-}
-
-els.message.addEventListener("input", () => queueSave({ message: els.message.value }));
-els.format.addEventListener("change", () => queueSave({ format: els.format.value }));
-els.via.addEventListener("change", () => {
-    renderTarget();
-    queueSave({ webhook: selectedWebhook(), to: selectedKind() === "direct" ? els.to.value : [] });
 });
-els.to.addEventListener("input", () => {
-    renderTarget();
-    queueSave({ to: els.to.value });
-});
-els.topic.addEventListener("input", () => queueSave({ topic: els.topic.value }));
-
-els.form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    run("Checking…", async () => {
-        // Save the shown workflow too, so a single saved workflow is used even if never picked.
-        queueSave({ webhook: selectedWebhook(), ...(selectedKind() === "direct" ? {} : { to: [] }) });
-        await flushSave();
-        const res = await api("/api/send", { confirm: false });
-        els.confirmText.textContent = `Send this message to ${res.label}?`;
-        show(els.confirm, true);
-        els.confirm.dataset.fingerprint = res.fingerprint;
-        els.confirmSend.focus();
-    });
-});
-
-els.confirmSend.addEventListener("click", () => {
-    run("Sending…", async () => {
-        await flushSave();
-        const fingerprint = els.confirm.dataset.fingerprint;
-        if (!fingerprint) return;
-        const res = await api("/api/send", { confirm: true, fingerprint });
-        if (res.needsConfirm) {
-            els.confirmText.textContent = `The draft changed. Send this message to ${res.label}?`;
-            els.confirm.dataset.fingerprint = res.fingerprint;
-            return;
-        }
-        hideConfirm();
-        if (res.state) render(res.state);
-    });
-});
-
-els.confirmCancel.addEventListener("click", hideConfirm);
 
 const events = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
 events.onmessage = (event) => {

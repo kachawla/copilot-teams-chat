@@ -19,9 +19,11 @@ export async function loadConfig({ env = process.env, dir = dataDir(env) } = {})
             throw new Error(`Could not read ${path.join(dir, "config.json")}: ${err.message}`);
         }
     }
+    const tenantId = file.tenantId ? String(file.tenantId) : null;
+    if (tenantId && !/^[A-Za-z0-9.-]+$/.test(tenantId)) throw new Error(`Invalid tenantId "${tenantId}".`);
     return {
-        confirmBeforeSend: file.confirmBeforeSend !== false,
-        allowedWebhookHosts: Array.isArray(file.allowedWebhookHosts) ? file.allowedWebhookHosts.map(String) : [],
+        openIn: file.openIn === "web" ? "web" : "app",
+        tenantId,
         dataDir: dir,
     };
 }

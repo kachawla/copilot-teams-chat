@@ -13,27 +13,15 @@
             <h1>Teams message</h1>
         </header>
 
-        <section id="setup" class="panel" hidden>
-            <p><strong>No Teams workflow saved yet.</strong></p>
-            <p>To post to one chat or channel: in Teams, open <strong>Apps &gt; Workflows</strong> (or <strong>make.powerautomate.com &gt; Templates</strong>), choose <strong>Send webhook alerts to a chat</strong> or <strong>to a channel</strong>, pick where to post, and copy the URL it shows. Then ask Copilot: "Save this Teams workflow as team chat: &lt;URL&gt;".</p>
-            <p>To message anyone by email, as yourself: build the workflow under <strong>Send to anyone</strong> in the extension's README, then ask Copilot: "Save this as my direct Teams workflow: &lt;URL&gt;".</p>
-        </section>
-
         <form id="compose" autocomplete="off">
             <label class="field">
-                <span class="label">Workflow</span>
-                <select id="via" class="wide"></select>
-                <span id="via-note" class="muted"></span>
-            </label>
-
-            <label id="to-field" class="field" hidden>
                 <span class="label">To</span>
                 <input id="to" type="text" list="contacts" placeholder="Email addresses or saved contact names, separated by semicolons">
                 <datalist id="contacts"></datalist>
             </label>
 
             <label id="topic-field" class="field" hidden>
-                <span class="label">Group chat name <span class="muted">(a new group chat is created)</span></span>
+                <span class="label">Group chat name <span class="muted">(used if the group chat is new)</span></span>
                 <input id="topic" type="text" maxlength="250">
             </label>
 
@@ -49,22 +37,15 @@
             </div>
 
             <div class="field">
-                <span class="label">Preview</span>
-                <div id="preview" class="preview" aria-live="polite"></div>
-            </div>
-
-            <div id="confirm" class="panel confirm" hidden>
-                <p id="confirm-text"></p>
-                <div class="row">
-                    <button id="confirm-send" type="button" class="primary">Send now</button>
-                    <button id="confirm-cancel" type="button">Cancel</button>
-                </div>
+                <span class="label">What Teams will show</span>
+                <div id="preview" class="preview plain" aria-live="polite"></div>
             </div>
 
             <div class="row actions">
-                <button id="send" type="submit" class="primary">Send</button>
+                <button id="open" type="submit" class="primary">Open in Teams</button>
                 <span id="status" class="muted" role="status"></span>
             </div>
+            <p class="muted">Teams opens with the message ready. Nothing is sent until you press Send in Teams.</p>
             <p id="error" class="error" hidden></p>
             <p id="result" class="success" hidden></p>
         </form>

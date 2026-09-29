@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "teams-chat",
   "version": "0.1.0",
-  "description": "Send Microsoft Teams messages from GitHub Copilot chats: message anyone in your organization as yourself, or post to a team chat, through Teams workflows. No app sign-in or admin approval needed, and every message is confirmed before it is sent.",
+  "description": "Draft Microsoft Teams messages from GitHub Copilot chats. Copilot opens your chat in Teams with the message ready, and you press Send. No sign-in, setup, or admin approval needed.",
   "author": {
     "name": "Karishma Chawla",
     "url": "https://github.com/kachawla"
@@ -15,8 +15,7 @@
     "teams",
     "chat",
     "messaging",
-    "webhooks",
-    "workflows",
+    "deep-links",
     "productivity",
     "canvas"
   ],

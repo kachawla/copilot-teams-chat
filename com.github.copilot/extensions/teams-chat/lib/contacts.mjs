@@ -22,7 +22,7 @@ const key = (name) => String(name).trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
  * Name to email address book, so users can say "send to Alice" once they have
- * told Copilot who Alice is. Stored owner-only next to the webhooks.
+ * told Copilot who Alice is. Stored owner-only in the extension data folder.
  */
 export class ContactStore {
     constructor(dir) {

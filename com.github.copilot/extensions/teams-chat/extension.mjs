@@ -10,12 +10,6 @@ const service = await createService();
 // joinSession resolves, so they reach it through this late-bound proxy.
 let session;
 const sessionRef = {
-    get capabilities() {
-        return session?.capabilities;
-    },
-    get ui() {
-        return session?.ui;
-    },
     log: (...args) => session?.log(...args),
 };
 
