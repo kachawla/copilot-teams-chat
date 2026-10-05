@@ -44,6 +44,8 @@ Requires Node.js 22 or later, and Microsoft Teams (the app, or Teams on the web)
 - "Message Alice and Bob about the release, and call the chat Release sync."
 - "Open a Teams draft to Alice so I can edit it here first."
 
+Or type `/teams` to open the compose panel directly.
+
 ### Tools
 
 | Tool | What it does |
@@ -55,7 +57,7 @@ Requires Node.js 22 or later, and Microsoft Teams (the app, or Teams on the web)
 
 ### Compose canvas
 
-The `teams-chat-compose` canvas opens a draft panel. Copilot can prefill it (`to`, `topic`, `message`, `format`) and update it with the `update_draft` action. It can read your edits back with `get_draft`. Drafts are stored per Copilot session, so they survive panel reloads.
+Type `/teams`, or ask Copilot for a draft, to open the `teams-chat-compose` panel. If a draft is already open, `/teams` brings it back as it was. Copilot can prefill it (`to`, `topic`, `message`, `format`) and update it with the `update_draft` action. It can read your edits back with `get_draft`. Drafts are stored per Copilot session, so they survive panel reloads.
 
 ## Configuration
 
@@ -110,6 +112,7 @@ com.github.copilot/extensions/teams-chat/
   lib/compose.mjs                             resolves recipients and builds the draft
   lib/contacts.mjs                            name to email address book
   lib/tools.mjs                               agent tools
+  lib/commands.mjs                            the /teams slash command
   lib/canvas.mjs, lib/compose-server.mjs      compose canvas and its loopback server
   ui/                                         compose canvas page
 test/                                         node:test suites
