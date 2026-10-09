@@ -98,6 +98,8 @@ npm test                         # unit and integration tests
 node scripts/check-manifest.mjs  # checks the layout awesome-copilot requires
 ```
 
+When releasing, bump `version` in `plugin.json` and `package.json` and add an entry to [CHANGELOG.md](CHANGELOG.md).
+
 To try local changes, copy `com.github.copilot/extensions/teams-chat` into `~/.copilot/extensions/` and reload extensions.
 
 Layout:

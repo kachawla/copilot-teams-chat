@@ -5,8 +5,11 @@ import { COMPOSE_CANVAS_ID } from "./tools.mjs";
 export const COMMAND_INSTANCE_ID = "teams-chat-compose-panel";
 
 /**
- * Slash commands. `openCanvas` opens or focuses a canvas instance;
- * `log` reports failures to the user. Tests pass fakes.
+ * Slash commands. `openCanvas` opens or focuses a canvas instance; `log`
+ * writes to the session timeline. Tests pass fakes.
+ *
+ * Errors are rethrown: the SDK reports a thrown error back to the app as the
+ * command's failure, which is what users see. A log line alone isn't shown.
  */
 export function createCommands({ openCanvas, log }) {
     return [
@@ -19,7 +22,9 @@ export function createCommands({ openCanvas, log }) {
                     // so an empty object keeps any existing draft in the panel.
                     await openCanvas({ canvasId: COMPOSE_CANVAS_ID, instanceId: COMMAND_INSTANCE_ID, input: {} });
                 } catch (err) {
-                    await log(`Couldn't open the Teams message panel: ${err?.message || err}`, { level: "error" });
+                    const message = `Couldn't open the Teams message panel: ${err?.message || err}`;
+                    await Promise.resolve(log(message, { level: "error" })).catch(() => {});
+                    throw new Error(message);
                 }
             },
         },

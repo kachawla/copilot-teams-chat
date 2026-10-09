@@ -14,7 +14,7 @@ test("/teams opens the compose panel with empty input, so an existing draft is k
     ]);
 });
 
-test("/teams reports a failure to open instead of throwing", async () => {
+test("/teams fails visibly: it throws so the app shows the error, and logs it", async () => {
     const logs = [];
     const [command] = createCommands({
         openCanvas: async () => {
@@ -22,6 +22,8 @@ test("/teams reports a failure to open instead of throwing", async () => {
         },
         log: async (message, options) => logs.push({ message, options }),
     });
-    await command.handler({ commandName: "teams", args: "" });
+    await assert.rejects(command.handler({ commandName: "teams", args: "" }), {
+        message: "Couldn't open the Teams message panel: canvas_provider_unavailable",
+    });
     assert.deepEqual(logs, [{ message: "Couldn't open the Teams message panel: canvas_provider_unavailable", options: { level: "error" } }]);
 });
