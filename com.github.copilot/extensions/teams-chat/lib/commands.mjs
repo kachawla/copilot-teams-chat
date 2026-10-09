@@ -15,8 +15,9 @@ export function createCommands({ openCanvas, log }) {
             description: "Open the Teams message panel to draft a message and open it in Teams.",
             handler: async () => {
                 try {
-                    // No input, so an existing draft in the panel is kept.
-                    await openCanvas({ canvasId: COMPOSE_CANVAS_ID, instanceId: COMMAND_INSTANCE_ID });
+                    // The app requires an object input. Input is applied as a patch,
+                    // so an empty object keeps any existing draft in the panel.
+                    await openCanvas({ canvasId: COMPOSE_CANVAS_ID, instanceId: COMMAND_INSTANCE_ID, input: {} });
                 } catch (err) {
                     await log(`Couldn't open the Teams message panel: ${err?.message || err}`, { level: "error" });
                 }
