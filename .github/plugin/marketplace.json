@@ -1,0 +1,37 @@
+{
+  "name": "copilot-teams-chat",
+  "owner": {
+    "name": "kachawla"
+  },
+  "metadata": {
+    "description": "Teams chat plugin for GitHub Copilot.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "teams-chat",
+      "description": "Draft Microsoft Teams messages from GitHub Copilot chats. Copilot opens your chat in Teams with the message ready, and you press Send. No sign-in, setup, or admin approval needed.",
+      "author": {
+        "name": "Karishma Chawla",
+        "url": "https://github.com/kachawla"
+      },
+      "homepage": "https://github.com/kachawla/copilot-teams-chat",
+      "repository": "https://github.com/kachawla/copilot-teams-chat",
+      "license": "MIT",
+      "keywords": [
+        "microsoft-teams",
+        "teams",
+        "chat",
+        "messaging",
+        "deep-links",
+        "productivity",
+        "canvas"
+      ],
+      "source": {
+        "source": "github",
+        "repo": "kachawla/copilot-teams-chat",
+        "ref": "main"
+      }
+    }
+  ]
+}

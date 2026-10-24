@@ -26,7 +26,15 @@ The extension uses Teams [deep links](https://learn.microsoft.com/microsoftteams
 In the GitHub Copilot app or CLI:
 
 ```sh
-copilot plugin install kachawla/copilot-teams-chat
+copilot plugin marketplace add kachawla/copilot-teams-chat
+copilot plugin install teams-chat@copilot-teams-chat
+```
+
+To update to the latest version:
+
+```sh
+copilot plugin marketplace update copilot-teams-chat
+copilot plugin update teams-chat@copilot-teams-chat
 ```
 
 Once listed on [awesome-copilot](https://github.com/github/awesome-copilot):

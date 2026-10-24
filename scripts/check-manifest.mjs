@@ -26,6 +26,23 @@ const entries = fs.existsSync(extRoot)
 if (!entries.length) errors.push("com.github.copilot/extensions/<name>/extension.mjs is missing");
 if (pkg.main && !fs.existsSync(path.join(root, pkg.main))) errors.push(`package.json main "${pkg.main}" does not exist`);
 
+const marketplacePath = path.join(root, ".github", "plugin", "marketplace.json");
+if (!fs.existsSync(marketplacePath)) {
+    errors.push(".github/plugin/marketplace.json is missing");
+} else {
+    const marketplace = JSON.parse(fs.readFileSync(marketplacePath, "utf8"));
+    const entry = marketplace.plugins?.find((plugin) => plugin.name === manifest.name);
+    if (!entry) {
+        errors.push(`marketplace.json: no plugin named "${manifest.name}"`);
+    } else {
+        for (const key of ["description", "license", "homepage", "repository", "author", "keywords"]) {
+            if (JSON.stringify(entry[key]) !== JSON.stringify(manifest[key])) errors.push(`marketplace.json: "${key}" does not match plugin.json`);
+        }
+        const repo = manifest.repository.replace(/^https:\/\/github\.com\//, "");
+        if (entry.source?.source !== "github" || entry.source?.repo !== repo) errors.push(`marketplace.json: source must be { "source": "github", "repo": "${repo}" }`);
+    }
+}
+
 if (errors.length) {
     for (const error of errors) console.error(`✖ ${error}`);
     process.exit(1);
